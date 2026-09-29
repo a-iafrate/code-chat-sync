@@ -34,8 +34,13 @@ UI) unless the user explicitly asks: these are closed decisions.
 - **No client data in the sync repo, no tool files in client repos.** Any
   feature that risks mixing the two must be flagged before being
   implemented.
-- **Write only while the tool is closed** (e.g. never while `devenv.exe` is
-  running). Back up before every local overwrite.
+- **Runtime sync safety:** CodeChatSync must not read or write provider-owned
+  live data (e.g. chat files under `.vs`) while the provider process is
+  running. It must wait until the provider is closed, and back up existing
+  local files before overwriting them. This is a product behavior to
+  implement, not a restriction on editing this workspace: source and
+  documentation may be changed while Visual Studio is open, including through
+  its integrated chat. Back up existing workspace files before overwriting.
 - **Identify a project by its Git remote**, never by absolute local path.
 - The format Visual Studio uses to store chats in `.vs` is
   **undocumented**: treat it as best-effort, isolate this logic in the

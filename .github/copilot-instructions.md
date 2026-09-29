@@ -20,9 +20,13 @@ later) across the user's PCs, keeping them out of client Git repos.
   be in English.**
 - **No symlinks.** Every sync feature copies files, it never links them.
 - **Identify a project by its Git remote**, never by absolute path.
-- **Write to local files only while the tool is closed** (check that the
-  provider's process, e.g. `devenv`, isn't running), and **always back up
-  the previous file first**.
+- **Runtime sync safety:** CodeChatSync must not read or write provider-owned
+  live data (e.g. chat files under `.vs`) while the provider process is
+  running. It must wait until the provider is closed and back up existing
+  local files before overwriting them. This is product behavior to implement,
+  not a restriction on editing this workspace: source and documentation may
+  be changed while Visual Studio is open, including through its integrated
+  Copilot Chat. Back up existing workspace files before overwriting them.
 - Code that reads/writes Visual Studio's `.vs` folder must be isolated in
   `CodeChatSync.Providers.VisualStudio`: the format isn't documented by
   Microsoft, treat it as fragile, and don't leak assumptions about it into
