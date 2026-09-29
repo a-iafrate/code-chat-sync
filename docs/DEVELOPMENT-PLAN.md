@@ -8,9 +8,14 @@ Turn the decisions in [ARCHITECTURE.md](ARCHITECTURE.md) and the phase order in 
 
 - Phase 0 has started: the root `global.json` pins .NET SDK 10.0.401, and `src/CodeChatSync.slnx` contains the five planned project skeletons.
 - The WinUI 3 app currently has only a minimal launchable window; tray, watch, and configuration behavior remain future work.
-- The CLI has an initial read-only `.vs` inventory prototype that lists relative paths and file sizes, without opening contents, and refuses to run while any `devenv` process is active.
-- The full solution restored and built successfully with zero warnings and errors. CLI usage handling and the active-Visual-Studio safety guard were also verified.
-- The next milestone is to run discovery only after Visual Studio is closed to identify Copilot's actual storage layout. The prototype does not yet establish which files are chats.
+- The CLI has an initial read-only `.vs` inventory prototype that lists relative paths and file sizes without opening contents.
+- The running-provider guard is configurable, because discovery never reads file contents: Debug builds skip it by default, while Release builds still block and suggest the explicit override. The override is available in both configurations via the `--allow-running-provider` flag or the `CODECHATSYNC_ALLOW_RUNNING_PROVIDER` environment variable. The guard must be reinstated without a debug bypass for any operation that writes or reads chat contents.
+- The full solution restored and built successfully with zero warnings and errors, and the WinUI app launches.
+- First inventory run confirmed chats are **not** stored under the solution's `.vs` directory; the only Copilot-related entries there are `CopilotIndices/<version>/SemanticSymbols.db*`, a semantic symbol index.
+- Chat storage was located at `%LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\session-state\<session-id>\`. Each session folder holds `workspace.yaml` (descriptor), `events.jsonl` (transcript), an optional `session.db`, a `checkpoints/` folder, and `inuse.<pid>.lock` while the session is open. A machine-wide `session-store.db` with SQLite WAL files sits one level up.
+- The descriptor already records repository identity (`repository`, `git_root`, `branch`, `host_type`) alongside `cwd`, `client_name`, `name`, and `user_named`. This supports identifying a project by its Git remote without deriving identity from the local path, and exposes the chat title needed later by the Chat Library.
+- `discover` now reads that location through `CodeChatSync.Providers.VisualStudio`, scoped to a project folder by default and machine-wide with `--all`. On this repository it reports 8 scoped sessions and 133 in total.
+- Open items before any copy logic: the descriptor is undocumented and not every session records a repository, so a fallback identity path is required; transcripts are append-only JSONL written live, so copying must handle sessions that are in use; `session.db` and the shared `session-store.db` use SQLite WAL and must never be copied while the provider is running.
 
 ## Delivery approach
 

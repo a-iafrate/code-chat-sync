@@ -1,30 +1,40 @@
 using System.Diagnostics;
+using CodeChatSync.Providers.VisualStudio;
 
 namespace CodeChatSync.Cli;
 
 internal static class EntryPoint
 {
     private const string AllowRunningProviderOption = "--allow-running-provider";
-    private const string AllowRunningProviderVariable = "CODECHATSYNC_ALLOW_RUNNING_PROVIDER";
+    private const string AllRunningProviderVariable = "CODECHATSYNC_ALLOW_RUNNING_PROVIDER";
+    private const string AllSessionsOption = "--all";
 
     private static int Main(string[] args)
     {
         var allowRunningProvider = false;
-        var remainingArgs = new List<string>(args.Length);
+        var listAllSessions = false;
+        var positional = new List<string>(args.Length);
+
         foreach (var arg in args)
         {
             if (string.Equals(arg, AllowRunningProviderOption, StringComparison.OrdinalIgnoreCase))
             {
                 allowRunningProvider = true;
-                continue;
             }
-
-            remainingArgs.Add(arg);
+            else if (string.Equals(arg, AllSessionsOption, StringComparison.OrdinalIgnoreCase))
+            {
+                listAllSessions = true;
+            }
+            else
+            {
+                positional.Add(arg);
+            }
         }
 
-        if (remainingArgs.Count != 2 || !string.Equals(remainingArgs[0], "discover", StringComparison.OrdinalIgnoreCase))
+        if (positional.Count is 0 or > 2 || !string.Equals(positional[0], "discover", StringComparison.OrdinalIgnoreCase))
         {
-            Console.Error.WriteLine($"Usage: codechatsync discover <solution-path> [{AllowRunningProviderOption}]");
+            Console.Error.WriteLine(
+                $"Usage: codechatsync discover [<solution-or-folder-path>] [{AllSessionsOption}] [{AllowRunningProviderOption}]");
             return 2;
         }
 
@@ -41,7 +51,8 @@ internal static class EntryPoint
                 }
             }
 
-            return Discover(remainingArgs[1]);
+            var target = positional.Count == 2 ? positional[1] : Directory.GetCurrentDirectory();
+            return Discover(target, listAllSessions);
         }
         catch (UnauthorizedAccessException exception)
         {
@@ -60,7 +71,7 @@ internal static class EntryPoint
         }
     }
 
-    // Discovery only lists paths and sizes, so it is safe to run alongside the provider.
+    // Discovery only reads session metadata, so it is safe to run alongside the provider.
     // Debug builds skip the check by default to keep the inner development loop usable.
     private static bool ShouldSkipRunningProviderCheck(bool allowRunningProvider)
     {
@@ -69,7 +80,7 @@ internal static class EntryPoint
             return true;
         }
 
-        var configured = Environment.GetEnvironmentVariable(AllowRunningProviderVariable);
+        var configured = Environment.GetEnvironmentVariable(AllRunningProviderVariable);
         if (!string.IsNullOrWhiteSpace(configured))
         {
             return configured.Trim() is "1"
@@ -83,82 +94,98 @@ internal static class EntryPoint
 #endif
     }
 
-    private static int Discover(string solutionPath)
+    private static int Discover(string targetPath, bool listAllSessions)
     {
-        var fullSolutionPath = Path.GetFullPath(solutionPath);
-        if (!File.Exists(fullSolutionPath))
+        var fullTargetPath = Path.GetFullPath(targetPath);
+        string projectDirectory;
+
+        if (Directory.Exists(fullTargetPath))
         {
-            Console.Error.WriteLine($"Solution file not found: {fullSolutionPath}");
+            projectDirectory = fullTargetPath;
+        }
+        else if (File.Exists(fullTargetPath))
+        {
+            projectDirectory = Path.GetDirectoryName(fullTargetPath)
+                ?? throw new IOException("Unable to determine the solution directory.");
+        }
+        else
+        {
+            Console.Error.WriteLine($"Path not found: {fullTargetPath}");
             return 2;
         }
 
-        var extension = Path.GetExtension(fullSolutionPath);
-        if (!string.Equals(extension, ".sln", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(extension, ".slnx", StringComparison.OrdinalIgnoreCase))
+        var sessionStateRoot = CopilotChatDiscovery.GetDefaultSessionStateRoot();
+        Console.WriteLine($"Project directory:  {projectDirectory}");
+        Console.WriteLine($"Session state root: {sessionStateRoot}");
+
+        if (!Directory.Exists(sessionStateRoot))
         {
-            Console.Error.WriteLine("The path must point to a .sln or .slnx solution file.");
-            return 2;
-        }
-
-        var solutionDirectory = Path.GetDirectoryName(fullSolutionPath)
-            ?? throw new IOException("Unable to determine the solution directory.");
-        var visualStudioDirectory = Path.Combine(solutionDirectory, ".vs");
-
-        Console.WriteLine($"Solution: {fullSolutionPath}");
-        Console.WriteLine($"Visual Studio data directory: {visualStudioDirectory}");
-
-        if (!Directory.Exists(visualStudioDirectory))
-        {
-            Console.WriteLine("No .vs directory was found beside the solution.");
+            Console.WriteLine("No Copilot session-state directory was found for the current user.");
             return 0;
         }
 
-        var enumerationOptions = new EnumerationOptions
+        var sessions = listAllSessions
+            ? CopilotChatDiscovery.DiscoverSessions(sessionStateRoot)
+            : CopilotChatDiscovery.DiscoverSessionsForDirectory(projectDirectory, sessionStateRoot);
+
+        Console.WriteLine(listAllSessions
+            ? "Scope: all sessions for the current user."
+            : "Scope: sessions recorded for this project directory.");
+        Console.WriteLine();
+
+        if (sessions.Count == 0)
         {
-            RecurseSubdirectories = true,
-            AttributesToSkip = FileAttributes.ReparsePoint,
-            IgnoreInaccessible = false
-        };
-
-        var files = Directory.EnumerateFiles(visualStudioDirectory, "*", enumerationOptions)
-            .Select(path => new FileInfo(path))
-            .OrderBy(file => Path.GetRelativePath(visualStudioDirectory, file.FullName), StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        var candidateCount = 0;
-        long totalBytes = 0;
-        foreach (var file in files)
-        {
-            var relativePath = Path.GetRelativePath(visualStudioDirectory, file.FullName);
-            var looksChatRelated = LooksChatRelated(relativePath);
-            if (looksChatRelated)
-            {
-                candidateCount++;
-            }
-
-            totalBytes += file.Length;
-            var label = looksChatRelated ? "candidate" : "file";
-            Console.WriteLine($"{label,-9} {relativePath} ({file.Length:N0} bytes)");
+            Console.WriteLine("No matching chat sessions were found.");
+            Console.WriteLine($"Pass {AllSessionsOption} to list every session on this machine.");
+            return 0;
         }
 
-        Console.WriteLine($"Files inspected: {files.Length}; name-based candidates: {candidateCount}; total size: {totalBytes:N0} bytes.");
-        Console.WriteLine("Discovery lists paths and sizes only; it does not read or modify file contents.");
+        long totalBytes = 0;
+        foreach (var session in sessions)
+        {
+            var sessionBytes = session.Files.Sum(file => file.Length);
+            totalBytes += sessionBytes;
+
+            Console.WriteLine($"Session {session.Id}{(session.IsInUse ? "  [in use]" : string.Empty)}");
+            Console.WriteLine($"  Title:      {Summarize(session.Name)}{(session.IsUserNamed == true ? "  (user named)" : string.Empty)}");
+            Console.WriteLine($"  Repository: {session.Repository ?? "(none recorded)"}{FormatBranch(session.Branch)}");
+            Console.WriteLine($"  Folder:     {session.WorkingDirectory ?? "(none recorded)"}");
+            Console.WriteLine($"  Client:     {session.ClientName ?? "(unknown)"}");
+            Console.WriteLine($"  Created:    {Format(session.CreatedAt)}");
+            Console.WriteLine($"  Updated:    {Format(session.UpdatedAt)}");
+            Console.WriteLine($"  Files:      {session.Files.Count} ({sessionBytes:N0} bytes)");
+
+            foreach (var file in session.Files)
+            {
+                Console.WriteLine($"    {file.RelativePath} ({file.Length:N0} bytes)");
+            }
+
+            Console.WriteLine();
+        }
+
+        Console.WriteLine($"Sessions found: {sessions.Count}; total size: {totalBytes:N0} bytes.");
+        Console.WriteLine("Discovery reads session metadata only; it does not copy or modify chat data.");
         return 0;
     }
 
-    // The first segment under .vs is the solution's own folder name, which would
-    // otherwise match projects whose name happens to contain "chat" or "copilot".
-    private static bool LooksChatRelated(string relativePath)
-    {
-        var segments = relativePath.Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-            StringSplitOptions.RemoveEmptyEntries);
+    private static string FormatBranch(string? branch) =>
+        string.IsNullOrWhiteSpace(branch) ? string.Empty : $" ({branch})";
 
-        return segments
-            .Skip(1)
-            .Any(segment => segment.Contains("chat", StringComparison.OrdinalIgnoreCase)
-                || segment.Contains("copilot", StringComparison.OrdinalIgnoreCase));
+    /// <summary>Collapses a generated title into a single readable console line.</summary>
+    private static string Summarize(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return "(none recorded)";
+        }
+
+        var firstLine = title.ReplaceLineEndings(" ").Trim();
+        const int maxLength = 90;
+        return firstLine.Length <= maxLength ? firstLine : firstLine[..maxLength] + "...";
     }
+
+    private static string Format(DateTimeOffset? timestamp) =>
+        timestamp?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "(unknown)";
 
     private sealed class ProcessCollection(Process[] processes) : IDisposable
     {

@@ -3,10 +3,18 @@
 ## Current status
 
 Phase 0 is in progress. The .NET 10 solution scaffold and a minimal WinUI 3
-app shell are in place. The CLI has an initial read-only `.vs` file inventory
-prototype that refuses to run while `devenv` is active. Next: run discovery
-only after all Visual Studio instances are closed, inspect the inventory, and
-identify the actual Copilot chat storage location before implementing sync.
+app shell are in place and build cleanly. The CLI has a read-only discovery
+command; since it never modifies data, the running-provider guard is skipped
+by default in Debug builds and can be overridden in Release via
+`--allow-running-provider` or `CODECHATSYNC_ALLOW_RUNNING_PROVIDER`.
+
+Chat storage has been located: **not** under the solution's `.vs` folder, but
+under `%LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\session-state\<session-id>\`,
+with `workspace.yaml` as descriptor and `events.jsonl` as transcript. The
+descriptor records `repository`, `git_root`, and `branch`, which directly
+supports identifying a project by its Git remote. Next: define the
+`IChatProvider` contract around this layout and decide how to handle sessions
+that lack a recorded repository.
 
 ## Phase 0 — Discover (first concrete step)
 
@@ -15,10 +23,11 @@ identify the actual Copilot chat storage location before implementing sync.
       `CodeChatSync.Providers.VisualStudio`, `CodeChatSync.Git`,
       `CodeChatSync.Cli`, `CodeChatSync.App` (WinUI 3), all targeting
       `net10.0` (`net10.0-windows` for `App`)
-- [ ] `codechatsync discover` command (in the lightweight `Cli`): finds
-      where Visual Studio stores Copilot chats inside `.vs` for the current
-      solution, and shows them (no copying, inspection only). Needed to
-      confirm the exact path before writing backup/restore logic.
+- [x] `codechatsync discover` command (in the lightweight `Cli`): finds
+      where Visual Studio stores Copilot chats and shows them (no copying,
+      inspection only). Confirmed they live under
+      `%LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\session-state\`,
+      not inside the solution's `.vs` folder.
 
 ## Phase 1 — Core + Visual Studio provider
 
