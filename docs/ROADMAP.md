@@ -2,30 +2,19 @@
 
 ## Current status
 
-Phase 0 is complete and Phase 1 is in progress. The .NET 10 solution scaffold
-and a minimal WinUI 3 app shell are in place and build cleanly. The CLI has a
-read-only discovery command; since it never modifies data, the
-running-provider guard is skipped by default in Debug builds and can be
-overridden in Release via `--allow-running-provider` or
-`CODECHATSYNC_ALLOW_RUNNING_PROVIDER`. Operations that copy chat data keep the
-guard active in every configuration.
+Phases 0–3 are complete: discovery, guarded file sync, Git publishing, the
+CLI, and the tray app with watch and auto-start are implemented. Visual Studio
+chats live under `%LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\session-state\`,
+not the solution's `.vs` folder. Sync excludes agent scratch databases and the
+machine-wide session index, which may include unrelated client projects.
 
-Chat storage has been located: **not** under the solution's `.vs` folder, but
-under `%LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\session-state\<session-id>\`,
-with `workspace.yaml` as descriptor and `events.jsonl` as transcript. The
-descriptor records `repository`, `git_root`, and `branch`, which directly
-supports identifying a project by its Git remote.
-
-The `IChatProvider` contract, the Git-remote project identity, and the
-bidirectional copy service (backup before overwrite, baseline-hash conflict
-detection, no symlinks) are implemented and covered by `CodeChatSync.Tests`
-(xUnit). Sync includes `workspace.yaml`, `events.jsonl`, and session
-artifacts; it excludes `session.db` (agent scratch data, no chat content) and
-never touches the machine-wide `session-store.db`, which indexes every
-repository on the PC.
-
-Phase 1 is complete. Next: Git commit/push/pull on the private sync repo, and
-a decision on sessions that lack a recorded repository.
+Phase 4 is in progress. The tray window now configures the local private sync
+folder and its Git `origin`, and allows each PC to choose which synced Copilot
+sessions to restore locally without deleting or pruning the Git clone. Project
+management, automatic-sync controls, conflict resolution, and the recent-sync
+log remain open.
+restored session on another PC, and sessions without a recorded repository,
+still need validation.
 
 ## Phase 0 — Discover (first concrete step)
 
@@ -75,7 +64,10 @@ a decision on sessions that lack a recorded repository.
 
 ## Phase 4 — Configuration window (WinUI 3)
 
-- [ ] Window opened from the tray: sync repo's Git remote + local folder
+- [x] Window opened from the tray: sync repo's Git remote + local folder
+- [x] Per-PC selection of which archived Visual Studio chats are restored to
+      the provider folder; the full Git clone is retained and existing local
+      chats are not deleted
 - [ ] List of registered projects, manual sync per project
 - [ ] Toggle: automatic sync on VS close
 - [ ] Conflicts section: "keep local / keep remote" choice

@@ -213,6 +213,44 @@ public sealed class SyncRepositoryTests
         Assert.True(pull.CanContinue);
     }
 
+    [Fact]
+    public void GetAndSetOriginRemoteUrl_InitializesAddsAndReplacesOrigin()
+    {
+        using var temp = new TempDirectory();
+        var repository = new SyncRepository(temp.Combine("sync"));
+        repository.Initialize();
+
+        Assert.Null(repository.GetOriginRemoteUrl());
+
+        const string initialUrl = "https://github.com/contoso/chat-sync.git";
+        const string updatedUrl = "https://github.com/fabrikam/chat-sync.git";
+        repository.SetOriginRemoteUrl(initialUrl);
+        Assert.Equal(initialUrl, repository.GetOriginRemoteUrl());
+
+        repository.SetOriginRemoteUrl(updatedUrl);
+
+        Assert.Equal(updatedUrl, repository.GetOriginRemoteUrl());
+        Assert.True(repository.GetStatus().HasRemote);
+    }
+
+    [Theory]
+    [InlineData("http://user:password@example.com/team/sync.git")]
+    [InlineData("https://user:password@example.com/team/sync.git")]
+    public void SetOriginRemoteUrl_RejectsEmbeddedCredentialsWithoutReplacingValidOrigin(string invalidUrl)
+    {
+        using var temp = new TempDirectory();
+        var repository = new SyncRepository(temp.Path);
+        repository.Initialize();
+        const string validUrl = "https://github.com/contoso/sync.git";
+        repository.SetOriginRemoteUrl(validUrl);
+
+        var exception = Assert.Throws<ArgumentException>(() => repository.SetOriginRemoteUrl(invalidUrl));
+
+        Assert.Contains("credentials", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(validUrl, repository.GetOriginRemoteUrl());
+        Assert.True(repository.GetStatus().HasRemote);
+    }
+
     private static SyncRepository CreateRepository(string path, string? remotePath = null)
     {
         var repository = new SyncRepository(path);

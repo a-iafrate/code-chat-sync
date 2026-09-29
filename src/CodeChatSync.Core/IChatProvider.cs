@@ -24,3 +24,10 @@ public interface IChatProvider
     /// </summary>
     string MapToLocal(ProjectInfo project, string relativePath);
 }
+
+/// <summary>Optional provider capability for per-session restore selection.</summary>
+public interface IChatSessionProvider : IChatProvider
+{
+    /// <summary>Returns the stable session ID for a file in the project's sync folder.</summary>
+    string GetSessionId(string relativePath);
+}

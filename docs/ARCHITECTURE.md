@@ -148,6 +148,13 @@ The format is undocumented: all of this is best-effort and confined to
   never end up in the sync repo.
 - `CODECHATSYNC_HOME` overrides both local locations, which keeps tests and
   portable installs away from the real user configuration.
+- Optional per-PC `restoreSelections` entries are keyed by provider and
+  normalized project remote. A missing entry restores all sessions (including
+  future sessions); an explicit list restores only the selected session IDs.
+  An empty list restores none. This setting is never added to the shared
+  config, so two PCs can restore different subsets of the same Git clone.
+  It controls only remote-to-provider copies, not local-to-repo backups. An
+  unselected chat already present locally is **not deleted**.
 
 ## CLI commands
 
@@ -227,7 +234,25 @@ Minimum functionality of the configuration window:
   remote" choice
 - Log of recent syncs
 
-`CodeChatSync.Cli` remains as a separate lightweight tool for anyone who
+The configuration window lets the user choose an existing local sync folder
+or explicitly initialize a new Git repository, and set or update its `origin`
+URL. A blank URL leaves the existing remote untouched. The folder cannot be
+inside a registered project or another Git repository: that would mix client
+files into the private sync repository. Git changes complete before the per-PC
+folder setting is saved; saving during an active sync is refused. The app
+shows failures in the window instead of treating them as success. No Git
+credentials are stored in the remote URL; the user's existing credential
+helper remains responsible for authentication.
+
+The window also lists sessions found in the cloned sync repository for each
+registered project. The user may restore every chat (including future ones)
+or opt in to individual sessions on this PC. A provider interprets its own
+session IDs; the Core only decides whether a pull is permitted. This choice
+does not prune the Git clone or touch local provider-owned chats already
+present. Disabling a session therefore does not remove a previous restore;
+it only prevents subsequent copies into the provider's folder.
+
+`CodeChatSync.Cli` remains as a separate lightweight tool
 prefers running `add`/`sync`/`discover` from a terminal or a script,
 without going through the UI. It doesn't handle the watch — that only lives
 in the WinUI app.

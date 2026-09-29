@@ -270,4 +270,71 @@ public class ChatSyncServiceTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, content);
     }
-}
+
+    [Fact]
+    public void Sync_RestoresOnlyPathsAcceptedByTheSelectionPredicate()
+    {
+        var selectedPath = "session-selected/events.jsonl";
+        var unselectedPath = "session-unselected/events.jsonl";
+        Write(Path.Combine(_syncRoot, "fake", _project.Identity.Slug, selectedPath), "selected remote");
+        Write(Path.Combine(_syncRoot, "fake", _project.Identity.Slug, unselectedPath), "unselected remote");
+        var state = new SyncState();
+
+        var report = new ChatSyncService(new FakeProcessGuard()).Sync(
+            new FakeChatProvider(_localRoot),
+            _project,
+            _syncRoot,
+            state,
+            shouldRestore: path => path == selectedPath);
+
+        Assert.Equal(1, report.PulledCount);
+        Assert.Equal(1, report.SkippedCount);
+        Assert.Equal("selected remote", File.ReadAllText(Path.Combine(_localRoot, selectedPath.Replace('/', Path.DirectorySeparatorChar))));
+        Assert.False(File.Exists(Path.Combine(_localRoot, unselectedPath.Replace('/', Path.DirectorySeparatorChar))));
+        Assert.Equal(SyncState.ComputeHash(LocalFileFor(selectedPath)), state.GetBaseline(selectedPath));
+        Assert.Null(state.GetBaseline(unselectedPath));
+        Assert.False(Directory.Exists(ChatSyncService.GetBackupDirectory(_syncRoot)));
+    }
+
+    [Fact]
+    public void Sync_PreservesAnExistingLocalFileWhenItsRemoteChangeIsUnselected()
+    {
+        const string localContent = "local version";
+        const string remoteContent = "remote version";
+        WriteLocal(localContent);
+        WriteSync(localContent);
+        var state = new SyncState();
+        state.SetBaseline(RelativePath, SyncState.ComputeHash(LocalFile())!);
+        WriteSync(remoteContent);
+
+        var report = SyncWithRestorePredicate(state, _ => false);
+
+        Assert.Equal(SyncAction.Skipped, Assert.Single(report.Entries).Action);
+        Assert.Equal(localContent, File.ReadAllText(LocalFile()));
+        Assert.Equal(remoteContent, File.ReadAllText(SyncFile()));
+        Assert.Equal(SyncState.ComputeHash(LocalFile()), state.GetBaseline(RelativePath));
+        Assert.False(Directory.Exists(ChatSyncService.GetBackupDirectory(_syncRoot)));
+    }
+
+    [Fact]
+    public void Sync_StillPushesLocalEditsWhenTheRestorePredicateRejectsThePath()
+    {
+        WriteLocal("previously synced");
+        WriteSync("previously synced");
+        var state = new SyncState();
+        state.SetBaseline(RelativePath, SyncState.ComputeHash(LocalFile())!);
+        WriteLocal("local edit");
+
+        var report = SyncWithRestorePredicate(state, _ => false);
+
+        Assert.Equal(SyncAction.Pushed, Assert.Single(report.Entries).Action);
+        Assert.Equal("local edit", File.ReadAllText(SyncFile()));
+        Assert.Equal(SyncState.ComputeHash(LocalFile()), state.GetBaseline(RelativePath));
+    }
+
+    private SyncReport SyncWithRestorePredicate(SyncState state, Func<string, bool> shouldRestore) =>
+        new ChatSyncService(new FakeProcessGuard()).Sync(
+            new FakeChatProvider(_localRoot), _project, _syncRoot, state, shouldRestore: shouldRestore);
+
+    private string LocalFileFor(string relativePath) =>
+        Path.Combine(_localRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));}

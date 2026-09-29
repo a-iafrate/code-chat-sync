@@ -3,10 +3,8 @@
 Syncs AI chats (Copilot in Visual Studio, other tools later) and personal
 prompts across the user's PCs, keeping them **out of client Git repos**.
 
-> Status: Phases 0 and 1 are complete. Chat discovery, project identity from
-> the Git remote, and bidirectional copying with backup and conflict
-> detection work from the CLI. Git commit/push/pull on the sync repo is next.
-> See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current progress.
+> Status: Phases 0–3 are complete; Phase 4 (the configuration window) is in
+> progress. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current progress.
 
 ## Quick start (CLI)
 
@@ -40,6 +38,19 @@ Visual Studio has been closed for long enough that its chat files have
 settled. Its menu shows the current status and offers *Sync now*, a status
 window, *Start with Windows*, and *Exit*. It only interrupts you when a run
 needs attention, such as a conflict or a pull that could not be completed.
+
+Open the window from the tray to choose a **separate private sync folder** and
+optionally set its Git `origin` URL. Select an existing clone, or check
+*Initialize as a Git repository if needed* to create one in a new folder.
+A blank URL leaves an existing remote unchanged. The window reports errors
+without saving a failed configuration change. Registering projects remains
+available through `codechatsync add` while the rest of the UI is built.
+
+Under *Chats on this PC*, choose which synced Copilot sessions to restore into
+Visual Studio on this machine. The full Git clone remains available for backup;
+a different PC can select a different subset. By default all sessions are
+restored. Unchecking a session prevents future restores but does **not** delete
+an existing local chat or remove anything from the repository.
 
 ## Why
 

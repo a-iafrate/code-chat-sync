@@ -11,7 +11,7 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// The layout is undocumented, so everything here is best-effort and stays inside
 /// this project.
 /// </remarks>
-public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : IChatProvider
+public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : IChatSessionProvider
 {
     /// <summary>
     /// Runtime state that is specific to one PC or to a live session, and therefore
@@ -89,6 +89,18 @@ public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : 
     {
         ArgumentNullException.ThrowIfNull(project);
         return RelativePathGuard.ResolveUnder(_sessionStateRoot, relativePath);
+    }
+
+    public string GetSessionId(string relativePath)
+    {
+        var normalized = RelativePathGuard.Normalize(relativePath);
+        var separator = normalized.IndexOf('/');
+        if (separator <= 0 || separator == normalized.Length - 1)
+        {
+            throw new ArgumentException("Expected a session ID followed by a file path.", nameof(relativePath));
+        }
+
+        return normalized[..separator];
     }
 
     /// <summary>

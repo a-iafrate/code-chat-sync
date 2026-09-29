@@ -133,8 +133,24 @@ public sealed class SyncOrchestrator(
         {
             var statePath = _workspace.GetStatePath(_provider.Id, project);
             var state = SyncState.Load(statePath);
+            Func<string, bool>? shouldRestore = null;
+            if (_workspace.GetRestoreSelection(_provider.Id, project) is { } selection)
+            {
+                if (_provider is not IChatSessionProvider sessionProvider)
+                {
+                    throw new SyncConfigurationException($"Provider '{_provider.Id}' does not support session-level restore selection.");
+                }
 
-            var report = _syncService.Sync(_provider, project, syncRoot, state, runOptions.DryRun);
+                if (selection.SessionIds is null)
+                {
+                    throw new SyncConfigurationException("The local restore selection is missing its session IDs.");
+                }
+
+                var selectedIds = new HashSet<string>(selection.SessionIds, StringComparer.OrdinalIgnoreCase);
+                shouldRestore = path => selectedIds.Contains(sessionProvider.GetSessionId(path));
+            }
+
+            var report = _syncService.Sync(_provider, project, syncRoot, state, runOptions.DryRun, shouldRestore);
 
             if (!runOptions.DryRun)
             {

@@ -119,6 +119,60 @@ public sealed class SyncCoordinatorTests : IDisposable
         Assert.False(coordinator.IsRunning);
     }
 
+    [Fact]
+    public async Task TryUpdateConfigurationAsync_RejectsWhileRunIsActiveThenAppliesAfterward()
+    {
+        using var runStarted = new ManualResetEventSlim();
+        using var releaseRun = new ManualResetEventSlim();
+        var coordinator = new SyncCoordinator(() =>
+        {
+            runStarted.Set();
+            if (!releaseRun.Wait(TimeSpan.FromSeconds(10)))
+            {
+                throw new IOException("The test did not release the active sync in time.");
+            }
+
+            return CreateOrchestrator();
+        });
+        var setting = "before";
+        var callbackCount = 0;
+        var run = coordinator.RunAsync();
+        SyncOutcome outcome;
+
+        try
+        {
+            Assert.True(runStarted.Wait(TimeSpan.FromSeconds(10)));
+            var rejected = await coordinator.TryUpdateConfigurationAsync(() =>
+            {
+                setting = "during";
+                Interlocked.Increment(ref callbackCount);
+            });
+
+            Assert.False(rejected);
+            Assert.Equal("before", setting);
+            Assert.Equal(0, callbackCount);
+            Assert.True(coordinator.IsRunning);
+        }
+        finally
+        {
+            releaseRun.Set();
+            outcome = await run;
+        }
+
+        Assert.Equal(SyncOutcomeStatus.Completed, outcome.Status);
+        Assert.False(coordinator.IsRunning);
+        var accepted = await coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            setting = "after";
+            Interlocked.Increment(ref callbackCount);
+        });
+
+        Assert.True(accepted);
+        Assert.Equal("after", setting);
+        Assert.Equal(1, callbackCount);
+        Assert.Same(outcome, coordinator.LastOutcome);
+    }
+
     private string ChatRoot => Directory.CreateDirectory(Path.Combine(_root.Path, "chats")).FullName;
 
     private SyncOrchestrator CreateOrchestrator() => CreateOrchestrator(registerProject: true);

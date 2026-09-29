@@ -25,7 +25,8 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
         ProjectInfo project,
         string syncRootPath,
         SyncState state,
-        bool dryRun = false)
+        bool dryRun = false,
+        Func<string, bool>? shouldRestore = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(project);
@@ -55,7 +56,8 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
                 continue;
             }
 
-            results.Add(SyncSingle(provider, project, projectSyncRoot, syncRootPath, state, relativePath, running, dryRun));
+            var restoreAllowed = shouldRestore?.Invoke(relativePath) ?? true;
+            results.Add(SyncSingle(provider, project, projectSyncRoot, syncRootPath, state, relativePath, running, dryRun, restoreAllowed));
         }
 
         return new SyncReport { Entries = results };
@@ -106,10 +108,21 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
         SyncState state,
         string relativePath,
         IReadOnlyList<string> runningProcesses,
-        bool dryRun)
+        bool dryRun,
+        bool restoreAllowed)
     {
         var localPath = provider.MapToLocal(project, relativePath);
         var syncPath = RelativePathGuard.ResolveUnder(projectSyncRoot, relativePath);
+
+        if (!restoreAllowed && !File.Exists(localPath) && File.Exists(syncPath))
+        {
+            return new SyncEntryResult
+            {
+                RelativePath = relativePath,
+                Action = SyncAction.Skipped,
+                Reason = "This session is not selected for restore on this PC."
+            };
+        }
 
         var localHash = SyncState.ComputeHash(localPath);
         var syncHash = SyncState.ComputeHash(syncPath);
@@ -141,6 +154,16 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
                 RelativePath = relativePath,
                 Action = SyncAction.Conflict,
                 Reason = "Changed on this PC and in the sync folder since the last sync."
+            };
+        }
+
+        if (!localChanged && !restoreAllowed && syncHash is not null)
+        {
+            return new SyncEntryResult
+            {
+                RelativePath = relativePath,
+                Action = SyncAction.Skipped,
+                Reason = "This session is not selected for restore on this PC."
             };
         }
 

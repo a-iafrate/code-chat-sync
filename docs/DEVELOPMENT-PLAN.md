@@ -124,7 +124,11 @@ Work one phase at a time. Keep each phase buildable, add focused automated tests
 - Users can see sync progress, errors, and unresolved conflicts; no failure is presented as a successful sync.
 - Choosing a conflict resolution applies only the selected copy and retains the other copy or backup as specified by the sync safety rules.
 
-## Phase 4bis — Chat Library
+### Status
+
+- In progress: the tray window configures the local sync folder and private Git `origin`, and selects which synced Visual Studio chat sessions to restore on this PC. Selections are local-only; remote backups and existing local chats are preserved. Project management, the auto-sync toggle, conflict resolution, and the sync log remain open.
+
+## Phase 4bis
 
 ### Work
 

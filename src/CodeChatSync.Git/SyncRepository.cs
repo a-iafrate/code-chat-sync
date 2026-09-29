@@ -95,6 +95,60 @@ public sealed class SyncRepository(string repositoryPath, GitCommandRunner? runn
         };
     }
 
+    /// <summary>Reads the origin URL, or null when no origin is configured.</summary>
+    public string? GetOriginRemoteUrl()
+    {
+        EnsureRepositoryRoot();
+        if (!HasOrigin())
+        {
+            return null;
+        }
+
+        return _runner.RunOrThrow(_repositoryPath, ["remote", "get-url", "origin"]).StandardOutput.Trim();
+    }
+
+    /// <summary>Sets the origin of this sync repository without changing other remotes.</summary>
+    public void SetOriginRemoteUrl(string url)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+        var trimmed = url.Trim();
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
+            && uri.Scheme is "http" or "https" && uri.UserInfo.Length > 0)
+        {
+            throw new ArgumentException("Do not put credentials in the remote URL. Use your Git credential helper instead.", nameof(url));
+        }
+
+        EnsureRepositoryRoot();
+        var arguments = HasOrigin()
+            ? new[] { "remote", "set-url", "origin", trimmed }
+            : new[] { "remote", "add", "origin", trimmed };
+        var result = _runner.Run(_repositoryPath, arguments);
+        if (!result.Succeeded)
+        {
+            throw new GitCommandException(
+                $"Could not configure origin (git exit {result.ExitCode}). Check the URL and repository permissions.");
+        }
+    }
+
+    private bool HasOrigin()
+    {
+        var result = _runner.RunOrThrow(_repositoryPath, ["remote"]);
+        return result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Any(name => string.Equals(name.Trim(), "origin", StringComparison.Ordinal));
+    }
+
+    private void EnsureRepositoryRoot()
+    {
+        _runner.EnsureAvailable();
+        EnsureDirectoryExists();
+        var result = _runner.Run(_repositoryPath, ["rev-parse", "--show-toplevel"]);
+        if (!result.Succeeded || !Path.GetFullPath(result.StandardOutput.Trim()).Equals(
+                _repositoryPath.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new GitCommandException("The sync folder must be the root of its own Git repository, not inside another project.");
+        }
+    }
+
     /// <summary>
     /// Prepares the folder as a sync repository, creating it and its
     /// <c>.gitignore</c> when needed. Never touches an existing repository's remote.

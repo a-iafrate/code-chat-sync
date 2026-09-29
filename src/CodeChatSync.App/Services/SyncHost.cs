@@ -52,6 +52,25 @@ public sealed class SyncHost : IAsyncDisposable
     /// <summary>Runs a sync now, for the tray's "Sync now" command.</summary>
     public Task<SyncOutcome> SyncNowAsync() => _coordinator.RunAsync(cancellationToken: _cancellation.Token);
 
+    /// <summary>Updates settings without racing an active sync run.</summary>
+    public Task<bool> SaveSettingsAsync(string folder, string? remote, bool initialize) =>
+        _coordinator.TryUpdateConfigurationAsync(
+            () => SyncRepositorySettings.Save(folder, remote, initialize), _cancellation.Token);
+
+    /// <summary>Save session restore choices only on this PC, without racing a sync.</summary>
+    public Task<bool> SaveRestoreSelectionsAsync(
+        IReadOnlyList<(ProjectIdentity Project, IReadOnlyList<string>? SessionIds)> selections) =>
+        _coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            var config = LocalConfig.Load();
+            foreach (var (project, sessionIds) in selections)
+            {
+                config.SetRestoreSelection(_provider.Id, project, sessionIds);
+            }
+
+            config.Save();
+        }, _cancellation.Token);
+
     public async ValueTask DisposeAsync()
     {
         await _cancellation.CancelAsync().ConfigureAwait(false);

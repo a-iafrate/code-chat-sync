@@ -3,7 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="CodeChatSync">
-    <Grid Padding="24" RowSpacing="16">
+    <Grid Padding="24" RowSpacing="16" MinWidth="560" MinHeight="520">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -12,7 +12,7 @@
 
         <StackPanel Grid.Row="0" Spacing="4">
             <TextBlock Text="CodeChatSync" FontSize="28" />
-            <TextBlock x:Name="ProviderStatusText" Opacity="0.8" />
+            <TextBlock x:Name="ProviderStatusText" Opacity="0.8" TextWrapping="Wrap" />
         </StackPanel>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
@@ -20,12 +20,36 @@
             <ProgressRing x:Name="SyncProgress" IsActive="False" Width="20" Height="20" />
         </StackPanel>
 
-        <Border Grid.Row="2" Padding="12" CornerRadius="4"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <ScrollViewer>
-                <TextBlock x:Name="LastRunText" TextWrapping="Wrap"
-                           Text="No sync has run yet in this session." />
-            </ScrollViewer>
-        </Border>
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Sync repository" FontSize="20" />
+                <TextBlock Text="Use a separate private Git repository, never a client project folder."
+                           TextWrapping="Wrap" />
+                <TextBox x:Name="SyncFolderTextBox" Header="Local sync folder"
+                         TextChanged="OnSyncFolderChanged"
+                         PlaceholderText="Choose an existing clone or initialize a new folder" />
+                <Button Content="Browse..." Click="OnBrowseFolderClick" />
+                <TextBox x:Name="RemoteTextBox" Header="Git origin URL (optional)"
+                         PlaceholderText="Leave blank to keep the existing remote" />
+                <CheckBox x:Name="InitializeCheckBox" Content="Initialize as a Git repository if needed" />
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Button x:Name="SaveSettingsButton" Content="Save settings" Click="OnSaveSettingsClick" />
+                    <ProgressRing x:Name="SettingsProgress" IsActive="False" Width="20" Height="20" />
+                </StackPanel>
+                <InfoBar x:Name="SettingsInfoBar" IsOpen="False" IsClosable="True" />
+                <TextBlock Text="Chats on this PC" FontSize="20" Margin="0,16,0,0" />
+                <TextBlock Text="Choose which chats from the sync repository are restored to Visual Studio on this PC. All chats stay in the Git repository; switching a chat off does not delete any files already on this PC."
+                           TextWrapping="Wrap" />
+                <StackPanel x:Name="SessionSelectionPanel" Spacing="12" />
+                <Button x:Name="SaveSelectionButton" Content="Save chat selection" Click="OnSaveSelectionClick" />
+                <InfoBar x:Name="SelectionInfoBar" IsOpen="False" IsClosable="True" />
+                <TextBlock Text="Last sync" FontSize="20" Margin="0,12,0,0" />
+                <Border Padding="12" CornerRadius="4"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                    <TextBlock x:Name="LastRunText" TextWrapping="Wrap"
+                               Text="No sync has run yet in this session." />
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Window>

@@ -36,6 +36,18 @@ public static class CopilotChatDiscovery
         var sessions = new List<CopilotChatSession>();
         foreach (var sessionDirectory in Directory.EnumerateDirectories(root))
         {
+            if ((File.GetAttributes(sessionDirectory) & FileAttributes.ReparsePoint) != 0)
+            {
+                continue;
+            }
+
+            var descriptor = Path.Combine(sessionDirectory, WorkspaceDescriptorFileName);
+            if (File.Exists(descriptor)
+                && (File.GetAttributes(descriptor) & FileAttributes.ReparsePoint) != 0)
+            {
+                continue;
+            }
+
             var session = TryReadSession(sessionDirectory);
             if (session is not null)
             {

@@ -60,6 +60,10 @@ public sealed class SyncWorkspace(LocalConfig localConfig, SharedConfig sharedCo
         return new ProjectResolution { Projects = projects, Unresolved = unresolved };
     }
 
+    /// <summary>Per-PC restore selection, or null to restore every session.</summary>
+    public LocalRestoreSelection? GetRestoreSelection(string providerId, ProjectInfo project) =>
+        _localConfig.FindRestoreSelection(providerId, project.Identity);
+
     /// <summary>
     /// Path of the baseline file for one project and provider. Baselines record what
     /// this PC last synced, so they stay local and are never committed.

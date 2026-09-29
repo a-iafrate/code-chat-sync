@@ -15,6 +15,19 @@ public sealed record LocalProjectEntry
     public required string LocalPath { get; init; }
 }
 
+/// <summary>Sessions selected for restore on this PC; an absent entry means restore all.</summary>
+public sealed record LocalRestoreSelection
+{
+    [JsonPropertyName("providerId")]
+    public required string ProviderId { get; init; }
+
+    [JsonPropertyName("remote")]
+    public required string Remote { get; init; }
+
+    [JsonPropertyName("sessionIds")]
+    public required List<string> SessionIds { get; init; }
+}
+
 /// <summary>
 /// Per-PC configuration: the sync folder and the local path of each registered
 /// project. It is machine-specific and must never be committed to the sync
@@ -27,6 +40,9 @@ public sealed class LocalConfig
 
     [JsonPropertyName("projects")]
     public List<LocalProjectEntry> Projects { get; set; } = [];
+
+    [JsonPropertyName("restoreSelections")]
+    public List<LocalRestoreSelection> RestoreSelections { get; set; } = [];
 
     /// <summary>
     /// Overrides where this PC's configuration and baselines are stored. Set it to
@@ -124,6 +140,58 @@ public sealed class LocalConfig
 
         Projects.Add(new LocalProjectEntry { Remote = identity.NormalizedRemote, LocalPath = fullPath });
         return true;
+    }
+
+    /// <summary>Null means restore every session, including newly discovered ones.</summary>
+    public LocalRestoreSelection? FindRestoreSelection(string providerId, ProjectIdentity identity)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
+        ArgumentNullException.ThrowIfNull(identity);
+        return RestoreSelections.FirstOrDefault(entry =>
+            string.Equals(entry.ProviderId, providerId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(entry.Remote, identity.NormalizedRemote, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Select sessions to restore on this PC; null restores all. This never deletes
+    /// existing local chats and never removes anything from the sync repository.
+    /// </summary>
+    public void SetRestoreSelection(string providerId, ProjectIdentity identity, IEnumerable<string>? sessionIds)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
+        ArgumentNullException.ThrowIfNull(identity);
+
+        List<string>? selected = null;
+        if (sessionIds is not null)
+        {
+            selected = [];
+            foreach (var id in sessionIds)
+            {
+                if (string.IsNullOrWhiteSpace(id) || id is "." or ".." || id.Contains('/')
+                    || id.Contains('\\') || id.Contains(':'))
+                {
+                    throw new ArgumentException("Session IDs must be single folder names.", nameof(sessionIds));
+                }
+
+                if (!selected.Contains(id, StringComparer.OrdinalIgnoreCase))
+                {
+                    selected.Add(id);
+                }
+            }
+        }
+
+        RestoreSelections.RemoveAll(entry =>
+            string.Equals(entry.ProviderId, providerId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(entry.Remote, identity.NormalizedRemote, StringComparison.OrdinalIgnoreCase));
+        if (selected is not null)
+        {
+            RestoreSelections.Add(new LocalRestoreSelection
+            {
+                ProviderId = providerId,
+                Remote = identity.NormalizedRemote,
+                SessionIds = selected
+            });
+        }
     }
 }
 

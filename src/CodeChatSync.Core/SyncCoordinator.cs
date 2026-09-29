@@ -55,6 +55,29 @@ public sealed class SyncCoordinator(Func<SyncOrchestrator> orchestratorFactory)
     /// <summary>Outcome of the most recent run, for status display.</summary>
     public SyncOutcome? LastOutcome { get; private set; }
 
+    /// <summary>
+    /// Performs a configuration change only when no sync is in progress. The same
+    /// gate also prevents a watcher-triggered run from starting mid-change.
+    /// </summary>
+    public async Task<bool> TryUpdateConfigurationAsync(Action update, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        try
+        {
+            await Task.Run(update, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     /// <summary>Runs a sync unless one is already in progress.</summary>
     public async Task<SyncOutcome> RunAsync(SyncRunOptions? options = null, CancellationToken cancellationToken = default)
     {
