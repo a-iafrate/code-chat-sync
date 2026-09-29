@@ -313,4 +313,70 @@ public class LocalConfigTests : IDisposable
             Environment.SetEnvironmentVariable(LocalConfig.HomeEnvironmentVariable, previous);
         }
     }
+
+    [Fact]
+    public void Load_LegacyJsonWithoutThemePreference_DefaultsToSystem()
+    {
+        var path = _root.WriteFile("legacy-config.json", """
+            {
+              "syncRootPath": "C:\\sync",
+              "projects": [
+                { "remote": "github.com/contoso/legacy-theme", "localPath": "C:\\src\\legacy" }
+              ]
+            }
+            """);
+
+        var config = LocalConfig.Load(path);
+
+        Assert.Equal(ThemePreference.System, config.ThemePreference);
+        Assert.Equal(@"C:\sync", config.SyncRootPath);
+        var project = Assert.Single(config.Projects);
+        Assert.Equal("github.com/contoso/legacy-theme", project.Remote);
+        Assert.Equal(@"C:\src\legacy", project.LocalPath);
+    }
+
+    [Theory]
+    [InlineData(ThemePreference.System, "System")]
+    [InlineData(ThemePreference.Light, "Light")]
+    [InlineData(ThemePreference.Dark, "Dark")]
+    public void SaveAndLoad_PersistsThemePreferenceAsReadableStringWithoutLosingOtherPerPcSettings(
+        ThemePreference preference,
+        string serializedPreference)
+    {
+        var identity = ProjectIdentity.FromRemote("https://github.com/contoso/theme-preference.git");
+        var config = new LocalConfig
+        {
+            SyncRootPath = _root.Combine("sync"),
+            AutomaticSyncOnProviderClose = false,
+            ThemePreference = preference
+        };
+        config.AddOrUpdate(identity, _root.Combine("project"));
+        config.SetRestoreSelection("visualstudio", identity, ["session-a"]);
+        var path = _root.Combine("local-config.json");
+
+        config.Save(path);
+        using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        var serializedTheme = json.RootElement.GetProperty("themePreference");
+        var reloaded = LocalConfig.Load(path);
+
+        Assert.Equal(System.Text.Json.JsonValueKind.String, serializedTheme.ValueKind);
+        Assert.Equal(serializedPreference, serializedTheme.GetString());
+        Assert.Equal(preference, reloaded.ThemePreference);
+        Assert.Equal(_root.Combine("sync"), reloaded.SyncRootPath);
+        Assert.False(reloaded.AutomaticSyncOnProviderClose);
+        var project = Assert.Single(reloaded.Projects);
+        Assert.Equal(identity.NormalizedRemote, project.Remote);
+        Assert.Equal(_root.Combine("project"), project.LocalPath);
+        Assert.Equal(["session-a"], reloaded.FindRestoreSelection("visualstudio", identity)!.SessionIds);
+    }
+
+    [Fact]
+    public void Load_RejectsAnUnknownThemePreference()
+    {
+        var path = _root.WriteFile("invalid-theme-config.json", """
+            { "themePreference": "Sepia" }
+            """);
+
+        Assert.Throws<InvalidDataException>(() => LocalConfig.Load(path));
+    }
 }

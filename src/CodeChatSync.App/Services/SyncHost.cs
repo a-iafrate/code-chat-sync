@@ -70,6 +70,15 @@ public sealed class SyncHost : IAsyncDisposable
             config.Save();
         }, _cancellation.Token);
 
+    /// <summary>Saves this PC's window appearance without racing a sync.</summary>
+    public Task<bool> SaveThemePreferenceAsync(ThemePreference preference) =>
+        _coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            var config = LocalConfig.Load();
+            config.ThemePreference = preference;
+            config.Save();
+        }, _cancellation.Token);
+
     /// <summary>Updates settings without racing an active sync run.</summary>
     public Task<bool> SaveSettingsAsync(string folder, string? remote, bool initialize) =>
         _coordinator.TryUpdateConfigurationAsync(

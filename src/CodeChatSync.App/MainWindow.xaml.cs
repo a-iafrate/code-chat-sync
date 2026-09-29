@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window
     {
         SaveSettingsButton.IsEnabled = false;
         SaveAutomaticSyncButton.IsEnabled = false;
+        SaveThemeButton.IsEnabled = false;
         SaveSelectionButton.IsEnabled = false;
         ProjectsPanel.Children.Clear();
         _loadingSettings = true;
@@ -52,6 +53,14 @@ public sealed partial class MainWindow : Window
         try
         {
             var config = LocalConfig.Load();
+            ThemeComboBox.SelectedIndex = config.ThemePreference switch
+            {
+                ThemePreference.System => 0,
+                ThemePreference.Light => 1,
+                ThemePreference.Dark => 2,
+                _ => throw new InvalidDataException($"Unknown window theme: {config.ThemePreference}")
+            };
+            ApplyTheme(config.ThemePreference);
             AutomaticSyncCheckBox.IsChecked = config.AutomaticSyncOnProviderClose;
             _loadedFolder = config.SyncRootPath;
             SyncFolderTextBox.Text = config.SyncRootPath ?? string.Empty;
@@ -93,6 +102,7 @@ public sealed partial class MainWindow : Window
             _loadingSettings = false;
             SaveSettingsButton.IsEnabled = true;
             SaveAutomaticSyncButton.IsEnabled = true;
+            SaveThemeButton.IsEnabled = true;
         }
     }
 
@@ -216,6 +226,61 @@ public sealed partial class MainWindow : Window
         AutomaticSyncInfoBar.Message = message;
         AutomaticSyncInfoBar.Severity = severity;
         AutomaticSyncInfoBar.IsOpen = true;
+    }
+
+    private async void OnSaveThemeClick(object sender, RoutedEventArgs e)
+    {
+        if (ThemeComboBox.SelectedIndex is < 0 or > 2)
+        {
+            ShowThemeMessage("Choose a window theme before saving.", InfoBarSeverity.Error);
+            return;
+        }
+
+        var preference = ThemeComboBox.SelectedIndex switch
+        {
+            0 => ThemePreference.System,
+            1 => ThemePreference.Light,
+            2 => ThemePreference.Dark,
+            _ => throw new InvalidOperationException("Unknown window theme selection.")
+        };
+
+        SaveThemeButton.IsEnabled = false;
+        try
+        {
+            if (!await _syncHost.SaveThemePreferenceAsync(preference))
+            {
+                ShowThemeMessage("A sync is in progress. Try saving again when it finishes.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            ApplyTheme(preference);
+            ShowThemeMessage("Window theme saved on this PC.", InfoBarSeverity.Success);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException)
+        {
+            ShowThemeMessage($"Could not save window theme: {exception.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            SaveThemeButton.IsEnabled = true;
+        }
+    }
+
+    private void ApplyTheme(ThemePreference preference) =>
+        WindowRoot.RequestedTheme = preference switch
+        {
+            ThemePreference.System => ElementTheme.Default,
+            ThemePreference.Light => ElementTheme.Light,
+            ThemePreference.Dark => ElementTheme.Dark,
+            _ => throw new InvalidDataException($"Unknown window theme: {preference}")
+        };
+
+    private void ShowThemeMessage(string message, InfoBarSeverity severity)
+    {
+        ThemeInfoBar.Message = message;
+        ThemeInfoBar.Severity = severity;
+        ThemeInfoBar.IsOpen = true;
     }
 
     private async void OnRefreshProjectsClick(object sender, RoutedEventArgs e)

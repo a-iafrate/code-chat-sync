@@ -28,6 +28,14 @@ public sealed record LocalRestoreSelection
     public required List<string> SessionIds { get; init; }
 }
 
+/// <summary>Appearance of the configuration window on this PC.</summary>
+public enum ThemePreference
+{
+    System,
+    Light,
+    Dark
+}
+
 /// <summary>
 /// Per-PC configuration: the sync folder and the local path of each registered
 /// project. It is machine-specific and must never be committed to the sync
@@ -46,6 +54,10 @@ public sealed class LocalConfig
 
     [JsonPropertyName("automaticSyncOnProviderClose")]
     public bool AutomaticSyncOnProviderClose { get; set; } = true;
+
+    [JsonPropertyName("themePreference")]
+    [JsonConverter(typeof(JsonStringEnumConverter<ThemePreference>))]
+    public ThemePreference ThemePreference { get; set; } = ThemePreference.System;
 
     /// <summary>
     /// Overrides where this PC's configuration and baselines are stored. Set it to

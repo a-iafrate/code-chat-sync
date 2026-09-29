@@ -230,6 +230,7 @@ Minimum functionality of the configuration window:
   path, last sync time
 - Sync now (globally and per project)
 - Toggle for automatic sync on Visual Studio close
+- Per-PC window theme: system, light, or dark
 - Conflict list (same file changed on two PCs) with a "keep local / keep
   remote" choice
 - Log of recent syncs
@@ -242,7 +243,11 @@ files into the private sync repository. Git changes complete before the per-PC
 folder setting is saved; saving during an active sync is refused. The app
 shows failures in the window instead of treating them as success. No Git
 credentials are stored in the remote URL; the user's existing credential
-helper remains responsible for authentication.
+helper remains responsible for authentication. `themePreference` lives only in
+the per-PC local configuration and defaults to `System` for existing installs.
+Saving it updates the WinUI window immediately; `System` tracks the Windows
+appearance. The native tray menu and window chrome continue to use the Windows
+appearance rather than the window's selected content theme.
 
 The window also lists sessions found in the cloned sync repository for each
 registered project. The user may restore every chat (including future ones)
@@ -378,7 +383,10 @@ anything new.
 - `TrayIconHost` owns the tray icon (`H.NotifyIcon.WinUI`) and its menu:
   current status, *Sync now*, *Open CodeChatSync*, *Start with Windows*,
   *Exit*. A notification is only raised when a run needs attention — a
-  conflict, an aborted pull, or a missing configuration.
+  conflict, an aborted pull, or a missing configuration. The library's default
+  Win32 popup menu executes each `MenuFlyoutItem.Command`, not its XAML `Click`
+  event; all menu actions use commands, including the auto-start toggle (which
+  reads the actual registry state before changing it).
 - `MainWindow` is a status window, not the app's lifetime: closing it leaves
   the app watching in the tray.
 

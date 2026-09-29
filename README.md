@@ -57,7 +57,11 @@ Under *Automatic sync*, uncheck the option and save to stop syncing automaticall
 after Visual Studio closes on this PC. It is enabled by default, including for
 existing installations. *Sync now* and per-project sync remain available.
 
-Under *Chats to restore on this PC*, uncheck *Restore on this PC* beside a
+Under *Appearance*, choose *Use system setting*, *Light*, or *Dark* and save to
+change the window theme immediately on this PC. Existing installations follow
+the Windows setting by default; the native tray menu follows Windows independently.
+
+Under *Chats to restore on this PC*,
 collapsed project and save to prevent all its archived chats from being restored
 to Visual Studio on this machine. Expand a project to select individual chats;
 the searchable list shows short titles, dates and session IDs. By default all

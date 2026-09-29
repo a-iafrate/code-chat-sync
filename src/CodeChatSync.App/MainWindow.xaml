@@ -3,7 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="CodeChatSync">
-    <Grid Padding="24" RowSpacing="16" MinWidth="560" MinHeight="520">
+    <Grid x:Name="WindowRoot" Padding="24" RowSpacing="16" MinWidth="560" MinHeight="520"
+          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -46,6 +47,15 @@
                 <Button x:Name="SaveAutomaticSyncButton" Content="Save automatic sync preference"
                         Click="OnSaveAutomaticSyncClick" />
                 <InfoBar x:Name="AutomaticSyncInfoBar" IsOpen="False" IsClosable="True" />
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
+                <TextBlock Text="Appearance" FontSize="20" />
+                <ComboBox x:Name="ThemeComboBox" Header="Window theme" HorizontalAlignment="Left" MinWidth="200">
+                    <ComboBoxItem Content="Use system setting" />
+                    <ComboBoxItem Content="Light" />
+                    <ComboBoxItem Content="Dark" />
+                </ComboBox>
+                <Button x:Name="SaveThemeButton" Content="Save theme" Click="OnSaveThemeClick" HorizontalAlignment="Left" />
+                <InfoBar x:Name="ThemeInfoBar" IsOpen="False" IsClosable="True" />
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                     <TextBlock Text="Projects on this PC" FontSize="20" />

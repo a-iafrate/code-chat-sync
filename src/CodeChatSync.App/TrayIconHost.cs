@@ -2,7 +2,6 @@ using CodeChatSync.App.Services;
 using CodeChatSync.Core;
 using H.NotifyIcon;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace CodeChatSync.App;
@@ -29,19 +28,31 @@ public sealed class TrayIconHost : IDisposable
         _syncHost = syncHost ?? throw new ArgumentNullException(nameof(syncHost));
         _dispatcherQueue = dispatcherQueue ?? throw new ArgumentNullException(nameof(dispatcherQueue));
 
-        _syncNowItem = new MenuFlyoutItem { Text = "Sync now" };
-        _syncNowItem.Click += async (_, _) => await SyncNowAsync();
+        _syncNowItem = new MenuFlyoutItem
+        {
+            Text = "Sync now",
+            Command = new RelayCommand(async () => await SyncNowAsync())
+        };
 
-        _statusItem = new MenuFlyoutItem { Text = "Waiting for Visual Studio to close" , IsEnabled = false };
+        _statusItem = new MenuFlyoutItem { Text = "Waiting for Visual Studio to close", IsEnabled = false };
 
-        var openItem = new MenuFlyoutItem { Text = "Open CodeChatSync" };
-        openItem.Click += (_, _) => ShowWindowRequested?.Invoke(this, EventArgs.Empty);
+        var openItem = new MenuFlyoutItem
+        {
+            Text = "Open CodeChatSync",
+            Command = new RelayCommand(() => ShowWindowRequested?.Invoke(this, EventArgs.Empty))
+        };
 
-        _autoStartItem = new ToggleMenuFlyoutItem { Text = "Start with Windows" };
-        _autoStartItem.Click += OnAutoStartToggled;
+        _autoStartItem = new ToggleMenuFlyoutItem
+        {
+            Text = "Start with Windows",
+            Command = new RelayCommand(ToggleAutoStart)
+        };
 
-        var exitItem = new MenuFlyoutItem { Text = "Exit" };
-        exitItem.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
+        var exitItem = new MenuFlyoutItem
+        {
+            Text = "Exit",
+            Command = new RelayCommand(() => ExitRequested?.Invoke(this, EventArgs.Empty))
+        };
 
         var menu = new MenuFlyout();
         menu.Items.Add(_statusItem);
@@ -122,11 +133,12 @@ public sealed class TrayIconHost : IDisposable
         _dispatcherQueue.TryEnqueue(() => UpdateStatus(
             isRunning ? "Visual Studio is open" : "Waiting for Visual Studio to close"));
 
-    private void OnAutoStartToggled(object sender, RoutedEventArgs e)
+    private void ToggleAutoStart()
     {
         try
         {
-            _autoStart.Set(_autoStartItem.IsChecked, ExecutablePath);
+            _autoStart.Set(!_autoStart.IsEnabled(ExecutablePath), ExecutablePath);
+            RefreshAutoStart();
         }
         catch (Exception exception) when (exception is System.Security.SecurityException or UnauthorizedAccessException or IOException)
         {
