@@ -43,82 +43,28 @@ internal static class AddCommand
 
     private static int Run(string? path, string? name, string? remoteOverride)
     {
-        var projectPath = Path.GetFullPath(path ?? Directory.GetCurrentDirectory());
-        if (!Directory.Exists(projectPath))
-        {
-            Console.Error.WriteLine($"Folder not found: {projectPath}");
-            return 2;
-        }
-
-        var config = LocalConfig.Load();
-        if (config.SyncRootPath is not { Length: > 0 } syncRoot)
-        {
-            Console.Error.WriteLine("No sync folder is configured on this PC.");
-            Console.Error.WriteLine("Run: codechatsync config set-sync-root <path>");
-            return 2;
-        }
-
-        if (!Directory.Exists(syncRoot))
-        {
-            Console.Error.WriteLine($"The configured sync folder no longer exists: {syncRoot}");
-            return 2;
-        }
-
-        var repositoryRoot = GitRemoteReader.FindRepositoryRoot(projectPath);
-        if (repositoryRoot is null && remoteOverride is null)
-        {
-            Console.Error.WriteLine($"'{projectPath}' is not inside a Git repository.");
-            Console.Error.WriteLine("A project is identified by its Git remote; pass --remote to register it anyway.");
-            return 2;
-        }
-
-        var remote = remoteOverride ?? GitRemoteReader.FindPrimaryRemoteUrl(repositoryRoot!);
-        if (string.IsNullOrWhiteSpace(remote))
-        {
-            Console.Error.WriteLine($"No usable Git remote was found for '{repositoryRoot ?? projectPath}'.");
-            Console.Error.WriteLine("Add an 'origin' remote, or pass --remote to choose one explicitly.");
-            return 2;
-        }
-
-        if (!ProjectIdentity.TryFromRemote(remote, out var identity) || identity is null)
-        {
-            Console.Error.WriteLine($"Unable to derive a project identity from remote '{remote}'.");
-            return 2;
-        }
-
-        // Register the repository root, so chat sessions recorded in subfolders still match.
-        var registeredPath = repositoryRoot ?? projectPath;
-
-        SharedConfig sharedConfig;
-        SharedProjectEntry entry;
         try
         {
-            sharedConfig = SharedConfig.Load(syncRoot);
-            entry = sharedConfig.AddOrUpdate(identity, name);
+            var config = LocalConfig.Load();
+            var project = ProjectRegistration.Add(path ?? Directory.GetCurrentDirectory(), name, remoteOverride);
+            Console.WriteLine($"Registered {project.Identity.NormalizedRemote}.");
+            Console.WriteLine($"  Local path:   {project.LocalPath}");
+            Console.WriteLine($"  Sync folder:  {Path.Combine(config.SyncRootPath!, "visualstudio", project.SyncFolderName)}");
+            Console.WriteLine($"  Shared map:   {SharedConfig.GetPath(config.SyncRootPath!)}");
+            Console.WriteLine();
+            Console.WriteLine("Run 'codechatsync sync --dry-run' to preview what would be copied.");
+            return 0;
         }
-        catch (ArgumentException exception)
+        catch (Exception exception) when (exception is ArgumentException or DirectoryNotFoundException
+            or InvalidOperationException)
         {
             Console.Error.WriteLine(exception.Message);
             return 2;
         }
-        catch (InvalidDataException exception)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             Console.Error.WriteLine(exception.Message);
             return 1;
         }
-
-        var isNew = config.AddOrUpdate(identity, registeredPath);
-        config.Save();
-        sharedConfig.Save(syncRoot);
-
-        Console.WriteLine(isNew
-            ? $"Registered {identity.NormalizedRemote}."
-            : $"Updated {identity.NormalizedRemote}.");
-        Console.WriteLine($"  Local path:   {registeredPath}");
-        Console.WriteLine($"  Sync folder:  {Path.Combine(syncRoot, "visualstudio", entry.Name)}");
-        Console.WriteLine($"  Shared map:   {SharedConfig.GetPath(syncRoot)}");
-        Console.WriteLine();
-        Console.WriteLine("Run 'codechatsync sync --dry-run' to preview what would be copied.");
-        return 0;
     }
 }

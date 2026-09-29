@@ -52,6 +52,24 @@ public sealed class SyncHost : IAsyncDisposable
     /// <summary>Runs a sync now, for the tray's "Sync now" command.</summary>
     public Task<SyncOutcome> SyncNowAsync() => _coordinator.RunAsync(cancellationToken: _cancellation.Token);
 
+    public Task<SyncOutcome> SyncProjectAsync(ProjectIdentity identity) =>
+        _coordinator.RunAsync(new SyncRunOptions { ExactProjectRemote = identity.NormalizedRemote }, _cancellation.Token);
+
+    public Task<bool> AddProjectAsync(string path, string? name, string? remote) =>
+        _coordinator.TryUpdateConfigurationAsync(() => ProjectRegistration.Add(path, name, remote), _cancellation.Token);
+
+    public Task<bool> RemoveProjectAsync(ProjectIdentity identity) =>
+        _coordinator.TryUpdateConfigurationAsync(() => ProjectRegistration.Remove(identity), _cancellation.Token);
+
+    /// <summary>Changes this PC's automatic sync preference without racing a sync.</summary>
+    public Task<bool> SaveAutomaticSyncAsync(bool enabled) =>
+        _coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            var config = LocalConfig.Load();
+            config.AutomaticSyncOnProviderClose = enabled;
+            config.Save();
+        }, _cancellation.Token);
+
     /// <summary>Updates settings without racing an active sync run.</summary>
     public Task<bool> SaveSettingsAsync(string folder, string? remote, bool initialize) =>
         _coordinator.TryUpdateConfigurationAsync(
@@ -90,8 +108,26 @@ public sealed class SyncHost : IAsyncDisposable
         _cancellation.Dispose();
     }
 
-    private void OnSyncRequested(object? sender, WatchTriggerReason reason) =>
+    private void OnSyncRequested(object? sender, WatchTriggerReason reason)
+    {
+        try
+        {
+            if (!LocalConfig.Load().AutomaticSyncOnProviderClose)
+            {
+                return;
+            }
+        }
+        catch (IOException)
+        {
+            // Let the coordinator report the invalid configuration to the tray.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Let the coordinator report the unreadable configuration to the tray.
+        }
+
         _ = _coordinator.RunAsync(cancellationToken: _cancellation.Token);
+    }
 
     /// <summary>
     /// Builds the sync pipeline from the current configuration, adding Git only when

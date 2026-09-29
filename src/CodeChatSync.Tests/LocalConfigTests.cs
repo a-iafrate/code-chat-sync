@@ -218,4 +218,99 @@ public class LocalConfigTests : IDisposable
         var noSelections = LocalConfig.Load(noSelectionPath);
         Assert.Empty(noSelections.RestoreSelections);
         Assert.Null(noSelections.FindRestoreSelection("visualstudio", identity));
-    }}
+    }
+
+    [Fact]
+    public void Load_EnablesAutomaticSyncWhenTheFileIsMissing()
+    {
+        var config = LocalConfig.Load(_root.Combine("absent.json"));
+
+        Assert.True(config.AutomaticSyncOnProviderClose);
+    }
+
+    [Fact]
+    public void Load_EnablesAutomaticSyncForLegacyJsonWithoutThePreference()
+    {
+        var path = _root.WriteFile("local-config.json", """
+            {
+              "syncRootPath": "C:\\sync",
+              "projects": [
+                { "remote": "github.com/contoso/legacy", "localPath": "C:\\src\\legacy" }
+              ]
+            }
+            """);
+
+        var config = LocalConfig.Load(path);
+
+        Assert.True(config.AutomaticSyncOnProviderClose);
+        Assert.Equal(@"C:\sync", config.SyncRootPath);
+        var entry = Assert.Single(config.Projects);
+        Assert.Equal("github.com/contoso/legacy", entry.Remote);
+        Assert.Empty(config.RestoreSelections);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Load_ReadsAnExplicitAutomaticSyncPreference(bool enabled)
+    {
+        var path = _root.WriteFile(
+            "local-config.json",
+            $$"""{ "automaticSyncOnProviderClose": {{(enabled ? "true" : "false")}} }""");
+
+        Assert.Equal(enabled, LocalConfig.Load(path).AutomaticSyncOnProviderClose);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SaveAndLoad_PersistsAutomaticSyncPreference(bool enabled)
+    {
+        var path = _root.Combine("local-config.json");
+        var config = new LocalConfig { SyncRootPath = _root.Path, AutomaticSyncOnProviderClose = enabled };
+
+        config.Save(path);
+        using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        var reloaded = LocalConfig.Load(path);
+
+        Assert.Equal(enabled, json.RootElement.GetProperty("automaticSyncOnProviderClose").GetBoolean());
+        Assert.Equal(enabled, reloaded.AutomaticSyncOnProviderClose);
+        Assert.Equal(_root.Path, reloaded.SyncRootPath);
+    }
+
+    [Fact]
+    public void AutomaticSyncPreference_TogglesThroughTheHomeOverrideWithoutLosingOtherSettings()
+    {
+        var previous = Environment.GetEnvironmentVariable(LocalConfig.HomeEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(LocalConfig.HomeEnvironmentVariable, _root.Path);
+            var identity = ProjectIdentity.FromRemote("https://github.com/contoso/toggle.git");
+            var initial = new LocalConfig { SyncRootPath = _root.Combine("sync") };
+            initial.AddOrUpdate(identity, _root.Combine("project"));
+            initial.SetRestoreSelection("visualstudio", identity, ["session-a"]);
+            initial.Save();
+
+            // Same load-modify-save sequence the app uses to store the per-PC toggle.
+            var disabling = LocalConfig.Load();
+            disabling.AutomaticSyncOnProviderClose = false;
+            disabling.Save();
+            var disabled = LocalConfig.Load();
+
+            Assert.True(File.Exists(Path.Combine(_root.Path, "local-config.json")));
+            Assert.False(disabled.AutomaticSyncOnProviderClose);
+            Assert.Equal(_root.Combine("sync"), disabled.SyncRootPath);
+            Assert.Equal(_root.Combine("project"), Assert.Single(disabled.Projects).LocalPath);
+            Assert.Equal(["session-a"], disabled.FindRestoreSelection("visualstudio", identity)!.SessionIds);
+
+            disabled.AutomaticSyncOnProviderClose = true;
+            disabled.Save();
+
+            Assert.True(LocalConfig.Load().AutomaticSyncOnProviderClose);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(LocalConfig.HomeEnvironmentVariable, previous);
+        }
+    }
+}

@@ -36,6 +36,9 @@ public sealed record SyncRunOptions
 
     /// <summary>Sync only the project matching this remote, slug or folder name.</summary>
     public string? ProjectFilter { get; init; }
+
+    /// <summary>Sync exactly this registered Git remote (used by the app).</summary>
+    public string? ExactProjectRemote { get; init; }
 }
 
 /// <summary>Result of syncing one project.</summary>
@@ -103,10 +106,19 @@ public sealed class SyncOrchestrator(
         }
 
         var resolution = _workspace.ResolveProjects();
-        var projects = Filter(resolution.Projects, runOptions.ProjectFilter);
+        var projects = runOptions.ExactProjectRemote is { } remote
+            ? resolution.Projects.Where(project => string.Equals(
+                project.Identity.NormalizedRemote, remote, StringComparison.OrdinalIgnoreCase)).ToArray()
+            : Filter(resolution.Projects, runOptions.ProjectFilter);
 
         if (projects.Count == 0)
         {
+            if (runOptions.ExactProjectRemote is { } requestedRemote)
+            {
+                throw new SyncConfigurationException(
+                    $"No usable project registered on this PC matches '{requestedRemote}'. Check its local folder.");
+            }
+
             return new SyncRunResult { Projects = [], Unresolved = resolution.Unresolved };
         }
 

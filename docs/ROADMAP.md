@@ -10,11 +10,13 @@ machine-wide session index, which may include unrelated client projects.
 
 Phase 4 is in progress. The tray window now configures the local private sync
 folder and its Git `origin`, and allows each PC to choose which synced Copilot
-sessions to restore locally without deleting or pruning the Git clone. Project
-management, automatic-sync controls, conflict resolution, and the recent-sync
-log remain open.
-restored session on another PC, and sessions without a recorded repository,
-still need validation.
+sessions to restore locally without deleting or pruning the Git clone. The
+window now registers projects by Git remote, lists their paths and last local
+sync run, removes local registrations without deleting archived chats, and can
+sync one project at a time. The automatic-sync preference is local to each PC;
+manual sync remains available when it is disabled. Conflict resolution and
+the recent-sync log remain open. Restored sessions on another PC and sessions
+without a recorded repository still need validation.
 
 ## Phase 0 — Discover (first concrete step)
 
@@ -68,8 +70,9 @@ still need validation.
 - [x] Per-PC selection of which archived Visual Studio chats are restored to
       the provider folder; the full Git clone is retained and existing local
       chats are not deleted
-- [ ] List of registered projects, manual sync per project
-- [ ] Toggle: automatic sync on VS close
+- [x] List of registered projects (add/remove on this PC), local path and
+      last run; manual sync per project
+- [x] Toggle: automatic sync on VS close (per PC, enabled by default)
 - [ ] Conflicts section: "keep local / keep remote" choice
 - [ ] Sync log
 

@@ -43,10 +43,20 @@ Open the window from the tray to choose a **separate private sync folder** and
 optionally set its Git `origin` URL. Select an existing clone, or check
 *Initialize as a Git repository if needed* to create one in a new folder.
 A blank URL leaves an existing remote unchanged. The window reports errors
-without saving a failed configuration change. Registering projects remains
-available through `codechatsync add` while the rest of the UI is built.
+without saving a failed configuration change.
 
-Under *Chats on this PC*, choose which synced Copilot sessions to restore into
+Under *Projects on this PC*, choose a folder inside a project's Git repository,
+then select *Add project*. The app detects its Git remote; if none is available,
+enter one explicitly. You can see the detected remote, local folder and last
+sync run, sync just that project, or remove its registration on this PC. Removing
+it does **not** delete any local chats or archived chats in the private Git
+repository. `codechatsync add` remains available in the CLI.
+
+Under *Automatic sync*, uncheck the option and save to stop syncing automatically
+after Visual Studio closes on this PC. It is enabled by default, including for
+existing installations. *Sync now* and per-project sync remain available.
+
+Under *Chats on this PC*, choose which archived chats to restore into
 Visual Studio on this machine. The full Git clone remains available for backup;
 a different PC can select a different subset. By default all sessions are
 restored. Unchecking a session prevents future restores but does **not** delete

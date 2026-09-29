@@ -126,7 +126,7 @@ Work one phase at a time. Keep each phase buildable, add focused automated tests
 
 ### Status
 
-- In progress: the tray window configures the local sync folder and private Git `origin`, and selects which synced Visual Studio chat sessions to restore on this PC. Selections are local-only; remote backups and existing local chats are preserved. Project management, the auto-sync toggle, conflict resolution, and the sync log remain open.
+- In progress: the tray window configures the local sync folder and private Git `origin`, selects which synced Visual Studio chat sessions to restore on this PC, and registers, lists, locally removes and individually syncs projects by Git remote. Selections are local-only; archived chats and existing local chats are preserved. The per-PC auto-sync toggle is enabled by default and does not affect manual sync. Conflict resolution and the sync log remain open.
 
 ## Phase 4bis
 

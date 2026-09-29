@@ -43,13 +43,16 @@ public sealed partial class MainWindow : Window
     private async Task<bool> LoadSettingsAsync()
     {
         SaveSettingsButton.IsEnabled = false;
+        SaveAutomaticSyncButton.IsEnabled = false;
         SaveSelectionButton.IsEnabled = false;
+        ProjectsPanel.Children.Clear();
         _loadingSettings = true;
         SessionSelectionPanel.Children.Clear();
         _sessionGroups.Clear();
         try
         {
             var config = LocalConfig.Load();
+            AutomaticSyncCheckBox.IsChecked = config.AutomaticSyncOnProviderClose;
             _loadedFolder = config.SyncRootPath;
             SyncFolderTextBox.Text = config.SyncRootPath ?? string.Empty;
             RemoteTextBox.Text = string.Empty;
@@ -89,6 +92,7 @@ public sealed partial class MainWindow : Window
         {
             _loadingSettings = false;
             SaveSettingsButton.IsEnabled = true;
+            SaveAutomaticSyncButton.IsEnabled = true;
         }
     }
 
@@ -105,13 +109,9 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var picker = new FolderPicker();
-            picker.FileTypeFilter.Add("*");
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-            var folder = await picker.PickSingleFolderAsync();
-            if (folder is not null)
+            if (await PickFolderAsync() is { } path)
             {
-                SyncFolderTextBox.Text = folder.Path;
+                SyncFolderTextBox.Text = path;
             }
         }
         catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException
@@ -119,6 +119,30 @@ public sealed partial class MainWindow : Window
         {
             ShowSettingsMessage($"Could not choose a folder: {exception.Message}", InfoBarSeverity.Error);
         }
+    }
+
+    private async void OnBrowseProjectClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (await PickFolderAsync() is { } path)
+            {
+                ProjectFolderTextBox.Text = path;
+            }
+        }
+        catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException
+            or UnauthorizedAccessException or InvalidOperationException)
+        {
+            ShowProjectMessage($"Could not choose a project folder: {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private async Task<string?> PickFolderAsync()
+    {
+        var picker = new FolderPicker();
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        return (await picker.PickSingleFolderAsync())?.Path;
     }
 
     private async void OnSaveSettingsClick(object sender, RoutedEventArgs e)
@@ -159,12 +183,165 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OnSaveAutomaticSyncClick(object sender, RoutedEventArgs e)
+    {
+        SaveAutomaticSyncButton.IsEnabled = false;
+        try
+        {
+            var enabled = AutomaticSyncCheckBox.IsChecked == true;
+            if (!await _syncHost.SaveAutomaticSyncAsync(enabled))
+            {
+                ShowAutomaticSyncMessage("A sync is in progress. Try saving again when it finishes.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            ShowAutomaticSyncMessage(enabled
+                ? "Automatic sync after Visual Studio closes is enabled on this PC."
+                : "Automatic sync is disabled on this PC. Manual sync remains available.",
+                InfoBarSeverity.Success);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException)
+        {
+            ShowAutomaticSyncMessage($"Could not save automatic sync preference: {exception.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            SaveAutomaticSyncButton.IsEnabled = true;
+        }
+    }
+
+    private void ShowAutomaticSyncMessage(string message, InfoBarSeverity severity)
+    {
+        AutomaticSyncInfoBar.Message = message;
+        AutomaticSyncInfoBar.Severity = severity;
+        AutomaticSyncInfoBar.IsOpen = true;
+    }
+
+    private async void OnRefreshProjectsClick(object sender, RoutedEventArgs e)
+    {
+        await LoadSettingsAsync();
+    }
+
+    private async void OnAddProjectClick(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(ProjectFolderTextBox.Text))
+        {
+            ShowProjectMessage("Choose a project folder before adding it.", InfoBarSeverity.Error);
+            return;
+        }
+
+        AddProjectButton.IsEnabled = false;
+        try
+        {
+            var added = await _syncHost.AddProjectAsync(ProjectFolderTextBox.Text,
+                ProjectNameTextBox.Text, ProjectRemoteTextBox.Text);
+            if (!added)
+            {
+                ShowProjectMessage("A sync is in progress. Try adding the project again when it finishes.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            ProjectFolderTextBox.Text = string.Empty;
+            ProjectNameTextBox.Text = string.Empty;
+            ProjectRemoteTextBox.Text = string.Empty;
+            if (await LoadSettingsAsync())
+            {
+                ShowProjectMessage("Project registered on this PC. Sync now to archive its chats.", InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            ShowProjectMessage($"Could not add project: {exception.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            AddProjectButton.IsEnabled = true;
+        }
+    }
+
+    private async Task RemoveProjectAsync(ProjectIdentity identity, Button button)
+    {
+        var confirm = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Remove project from this PC?",
+            Content = $"{identity.NormalizedRemote} will no longer sync on this PC. Archived chats in the private repository and local chat files will not be deleted.",
+            PrimaryButtonText = "Remove",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await confirm.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        button.IsEnabled = false;
+        try
+        {
+            if (!await _syncHost.RemoveProjectAsync(identity))
+            {
+                ShowProjectMessage("A sync is in progress. Try removing the project again when it finishes.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            if (await LoadSettingsAsync())
+            {
+                ShowProjectMessage("Project removed from this PC. Archived chats remain in the private repository.", InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            ShowProjectMessage($"Could not remove project: {exception.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private async Task SyncProjectAsync(ProjectIdentity identity, Button button)
+    {
+        button.IsEnabled = false;
+        try
+        {
+            var outcome = await _syncHost.SyncProjectAsync(identity);
+            ShowOutcome(outcome);
+            if (outcome.NeedsAttention || outcome.Status == SyncOutcomeStatus.AlreadyRunning)
+            {
+                ShowProjectMessage(outcome.Summary, InfoBarSeverity.Warning);
+            }
+            else if (await LoadSettingsAsync())
+            {
+                ShowProjectMessage(outcome.Summary, InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            ShowProjectMessage($"Could not sync project: {exception.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private void ShowProjectMessage(string message, InfoBarSeverity severity)
+    {
+        ProjectInfoBar.Message = message;
+        ProjectInfoBar.Severity = severity;
+        ProjectInfoBar.IsOpen = true;
+    }
+
     private async Task LoadSessionsAsync(LocalConfig config, string syncRoot)
     {
         var groups = await Task.Run(() =>
         {
             var shared = SharedConfig.Load(syncRoot);
-            var results = new List<(ProjectIdentity Project, string Name, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string Title)> Sessions)>();
+            var results = new List<(ProjectIdentity Project, string Name, string LocalPath, DateTime? LastRunUtc, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string Title)> Sessions)>();
             foreach (var entry in config.Projects)
             {
                 if (!ProjectIdentity.TryFromRemote(entry.Remote, out var identity) || identity is null)
@@ -183,7 +360,13 @@ public sealed partial class MainWindow : Window
                 var sessions = CopilotChatDiscovery.DiscoverSessions(projectRoot)
                     .Select(session => (Id: Path.GetFileName(session.SessionDirectory), Title: session.Name ?? session.Id))
                     .ToArray();
-                results.Add((identity, name, config.FindRestoreSelection("visualstudio", identity), sessions));
+                var statePath = new SyncWorkspace(config, shared).GetStatePath("visualstudio", new ProjectInfo
+                {
+                    Identity = identity, LocalPath = entry.LocalPath, DisplayName = name
+                });
+                DateTime? lastRun = File.Exists(statePath) ? File.GetLastWriteTimeUtc(statePath) : null;
+                results.Add((identity, name, entry.LocalPath, lastRun,
+                    config.FindRestoreSelection("visualstudio", identity), sessions));
             }
 
             return results;
@@ -191,12 +374,30 @@ public sealed partial class MainWindow : Window
 
         if (groups.Count == 0)
         {
-            SessionSelectionPanel.Children.Add(new TextBlock { Text = "No projects are registered on this PC. Register one with 'codechatsync add'.", TextWrapping = TextWrapping.Wrap });
+            ProjectsPanel.Children.Add(new TextBlock { Text = "No projects registered on this PC." });
+            SessionSelectionPanel.Children.Add(new TextBlock { Text = "Add a project above to manage its chats." });
             return;
         }
 
         foreach (var group in groups)
         {
+            var projectRow = new StackPanel { Spacing = 4 };
+            projectRow.Children.Add(new TextBlock { Text = group.Name, FontSize = 17 });
+            projectRow.Children.Add(new TextBlock { Text = $"Remote: {group.Project.NormalizedRemote}", TextWrapping = TextWrapping.Wrap });
+            projectRow.Children.Add(new TextBlock { Text = $"Local folder: {group.LocalPath}", TextWrapping = TextWrapping.Wrap });
+            projectRow.Children.Add(new TextBlock { Text = group.LastRunUtc is { } time
+                ? $"Last local sync run: {time.ToLocalTime():g}"
+                : "No local sync run yet." });
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            var sync = new Button { Content = "Sync this project" };
+            sync.Click += async (_, _) => await SyncProjectAsync(group.Project, sync);
+            actions.Children.Add(sync);
+            var remove = new Button { Content = "Remove from this PC" };
+            remove.Click += async (_, _) => await RemoveProjectAsync(group.Project, remove);
+            actions.Children.Add(remove);
+            projectRow.Children.Add(actions);
+            ProjectsPanel.Children.Add(projectRow);
+
             var container = new StackPanel { Spacing = 4 };
             container.Children.Add(new TextBlock { Text = group.Name, FontSize = 17 });
             var all = new CheckBox { Content = "Restore all chats (including future chats)", IsChecked = group.Selection is null };

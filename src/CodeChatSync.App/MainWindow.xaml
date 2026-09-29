@@ -37,6 +37,27 @@
                     <ProgressRing x:Name="SettingsProgress" IsActive="False" Width="20" Height="20" />
                 </StackPanel>
                 <InfoBar x:Name="SettingsInfoBar" IsOpen="False" IsClosable="True" />
+                <TextBlock Text="Automatic sync" FontSize="20" Margin="0,16,0,0" />
+                <CheckBox x:Name="AutomaticSyncCheckBox"
+                          Content="Sync automatically after Visual Studio closes" />
+                <TextBlock Text="Turning this off does not affect Sync now or per-project sync."
+                           TextWrapping="Wrap" />
+                <Button x:Name="SaveAutomaticSyncButton" Content="Save automatic sync preference"
+                        Click="OnSaveAutomaticSyncClick" />
+                <InfoBar x:Name="AutomaticSyncInfoBar" IsOpen="False" IsClosable="True" />
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,16,0,0">
+                    <TextBlock Text="Projects on this PC" FontSize="20" />
+                    <Button Content="Refresh list" Click="OnRefreshProjectsClick" />
+                </StackPanel>
+                <TextBlock Text="Select a project Git repository to register it by its remote. Removing a project only stops syncing it on this PC; archived chats remain in the private sync repository."
+                           TextWrapping="Wrap" />
+                <TextBox x:Name="ProjectFolderTextBox" Header="Project folder" PlaceholderText="Folder inside the project's Git repository" />
+                <Button Content="Browse for project..." Click="OnBrowseProjectClick" />
+                <TextBox x:Name="ProjectNameTextBox" Header="Sync folder name (optional)" PlaceholderText="Defaults to a name derived from the remote" />
+                <TextBox x:Name="ProjectRemoteTextBox" Header="Project Git remote (optional)" PlaceholderText="Detected from origin when blank" />
+                <Button x:Name="AddProjectButton" Content="Add project" Click="OnAddProjectClick" />
+                <InfoBar x:Name="ProjectInfoBar" IsOpen="False" IsClosable="True" />
+                <StackPanel x:Name="ProjectsPanel" Spacing="12" />
                 <TextBlock Text="Chats on this PC" FontSize="20" Margin="0,16,0,0" />
                 <TextBlock Text="Choose which chats from the sync repository are restored to Visual Studio on this PC. All chats stay in the Git repository; switching a chat off does not delete any files already on this PC."
                            TextWrapping="Wrap" />

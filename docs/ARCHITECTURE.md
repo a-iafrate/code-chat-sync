@@ -249,10 +249,21 @@ registered project. The user may restore every chat (including future ones)
 or opt in to individual sessions on this PC. A provider interprets its own
 session IDs; the Core only decides whether a pull is permitted. This choice
 does not prune the Git clone or touch local provider-owned chats already
-present. Disabling a session therefore does not remove a previous restore;
+Disabling a session therefore does not remove a previous restore;
 it only prevents subsequent copies into the provider's folder.
 
-`CodeChatSync.Cli` remains as a separate lightweight tool
+Project registration in both the app and CLI uses `ProjectRegistration`:
+choose a folder in the project's Git repository, detect its remote, and save
+the repository root only on this PC while adding a remote-to-name entry to the
+shared configuration. An explicit remote is possible when none can be
+detected. Sync and client folders must not overlap, and two different remotes
+must not share a sync folder name. Removing a project from this PC deletes only
+its local registration; the shared mapping, synced chats and local chat files
+stay intact. The displayed last run is the modification time of this PC's
+baseline file. A per-project sync matches the normalized remote exactly so a
+similarly named project cannot be synced accidentally.
+
+`CodeChatSync.Cli` remains available to anyone who
 prefers running `add`/`sync`/`discover` from a terminal or a script,
 without going through the UI. It doesn't handle the watch — that only lives
 in the WinUI app.
@@ -318,6 +329,13 @@ When the last instance disappears, the app waits out a **settle delay**
 chat files for a moment after the window closes, and closing one instance
 while another starts is common. If the provider reappears during that wait,
 the pending sync is cancelled.
+
+The per-PC `automaticSyncOnProviderClose` setting defaults to true, including
+for older configuration files without this field. The tray watcher still tracks
+provider status when it is false, but skips its automatic sync request. Manual
+sync (global or per-project) remains available. The app saves this preference
+under the coordinator's configuration gate; it is never stored in the shared
+Git repository.
 
 `SyncCoordinator` runs one sync at a time. A request arriving while a run is
 in progress is dropped rather than queued: overlapping runs would copy the

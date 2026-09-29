@@ -44,6 +44,9 @@ public sealed class LocalConfig
     [JsonPropertyName("restoreSelections")]
     public List<LocalRestoreSelection> RestoreSelections { get; set; } = [];
 
+    [JsonPropertyName("automaticSyncOnProviderClose")]
+    public bool AutomaticSyncOnProviderClose { get; set; } = true;
+
     /// <summary>
     /// Overrides where this PC's configuration and baselines are stored. Set it to
     /// keep a run — an end-to-end test, or a portable install — away from the
