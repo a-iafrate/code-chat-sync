@@ -3,10 +3,29 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="CodeChatSync">
-    <Grid Padding="24">
-        <StackPanel Spacing="8">
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="4">
             <TextBlock Text="CodeChatSync" FontSize="28" />
-            <TextBlock Text="Application scaffold ready." />
+            <TextBlock x:Name="ProviderStatusText" Opacity="0.8" />
         </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Button x:Name="SyncNowButton" Content="Sync now" Click="OnSyncNowClick" />
+            <ProgressRing x:Name="SyncProgress" IsActive="False" Width="20" Height="20" />
+        </StackPanel>
+
+        <Border Grid.Row="2" Padding="12" CornerRadius="4"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <ScrollViewer>
+                <TextBlock x:Name="LastRunText" TextWrapping="Wrap"
+                           Text="No sync has run yet in this session." />
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>

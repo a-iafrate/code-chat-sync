@@ -100,6 +100,16 @@ Work one phase at a time. Keep each phase buildable, add focused automated tests
 - Watch does not sync while any Visual Studio instance is running and handles repeated process events safely.
 - Auto-start can be enabled/disabled through the supported Windows packaging flow and leaves no manually managed scheduled task.
 
+### Status
+
+- Tray, watch, and auto-start are complete. 179 xUnit tests pass.
+- The sync flow moved into `SyncOrchestrator` in Core, with `ISyncPublisher` declared there and implemented by `CodeChatSync.Git`. The CLI and the tray app now run exactly the same logic instead of two copies, and the sync flow stays independent of Git.
+- `ProviderWatcher` polls the provider's process names instead of subscribing to WMI process-termination events. Polling a handful of names every few seconds is cheap, adds no dependency, needs no elevation, and let the timing rules be unit-tested exactly, with an injected clock and no real waiting.
+- A 20-second settle delay runs after the last instance disappears, and a provider that reappears during the wait cancels the pending sync. `SyncCoordinator` drops a sync requested while one is already running, so closing several instances together cannot race on the baselines.
+- Verified by running the app: it starts with no window, stays responsive in the tray, and creates no configuration as a side effect. The CLI was re-verified end to end after the refactor, with identical results to Phase 2.
+- **Auto-start decision:** a per-user `Run` entry under `HKCU`, toggled from the tray, rather than the MSIX StartupTask extension originally planned. StartupTask needs package identity and the app builds unpackaged (`WindowsPackageType=None`). The rules live in `AutoStartManager` behind `IStartupEntryStore`, so packaging the app later means replacing only `RegistryStartupEntryStore`. Trade-off accepted and documented: the entry is not removed automatically on uninstall, so the app removes it itself when auto-start is turned off.
+- Verified that the `Run` key round-trips a value without elevation, that an entry pointing at a different build counts as disabled so enabling repairs it, and that simply starting the app writes nothing to the registry.
+
 ## Phase 4 — Configuration window
 
 ### Work

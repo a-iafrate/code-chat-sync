@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\CodeChatSync.Core\CodeChatSync.Core.csproj" />
+  </ItemGroup>
+
 </Project>

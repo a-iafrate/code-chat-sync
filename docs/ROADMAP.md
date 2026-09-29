@@ -61,12 +61,17 @@ a decision on sessions that lack a recorded repository.
 
 ## Phase 3 — WinUI app: tray, watch, and auto-start
 
-- [ ] `CodeChatSync.App`: tray icon (`H.NotifyIcon.WinUI`)
-- [ ] Watch integrated into the app's process: automatic sync on Visual
-      Studio close (WMI event on `devenv.exe`, with a wait for file
-      release) — no longer a separate CLI command
-- [ ] Auto-start via the StartupTask extension (MSIX), no more manually
-      created Scheduled Task
+- [x] `CodeChatSync.App`: tray icon (`H.NotifyIcon.WinUI`)
+- [x] Watch integrated into the app's process: automatic sync once Visual
+      Studio has been closed long enough for its files to settle — no longer
+      a separate CLI command. Implemented by polling the provider's process
+      names rather than a WMI subscription: cheaper, dependency-free, and
+      unit-testable.
+- [x] Auto-start without a manually created Scheduled Task: per-user
+      Windows `Run` entry, toggled from the tray. The MSIX StartupTask
+      extension needs package identity, which the unpackaged app does not
+      have; the rules sit behind `IStartupEntryStore` so switching to
+      StartupTask later only means replacing the store.
 
 ## Phase 4 — Configuration window (WinUI 3)
 

@@ -283,16 +283,73 @@ Design:
 
 ## How it detects Visual Studio closing
 
-The WinUI app subscribes to WMI process-termination events filtered on
-`devenv.exe`. When the last instance closes, it waits a few seconds for
-files to be released, then triggers a sync.
+The tray app polls for the provider's process names every few seconds
+(`ProviderWatcher`) instead of subscribing to WMI process-termination
+events. Checking a handful of process names is cheap, needs no extra
+dependency or elevation, and keeps the timing rules unit-testable.
+
+When the last instance disappears, the app waits out a **settle delay**
+(20 seconds by default) before syncing: Visual Studio keeps flushing its
+chat files for a moment after the window closes, and closing one instance
+while another starts is common. If the provider reappears during that wait,
+the pending sync is cancelled.
+
+`SyncCoordinator` runs one sync at a time. A request arriving while a run is
+in progress is dropped rather than queued: overlapping runs would copy the
+same files twice and race on the baselines, and the next close picks up
+anything new.
+
+## App structure
+
+`CodeChatSync.App` composes rather than implements:
+
+- `SyncHost` builds the sync pipeline from the current configuration on
+  every run, so changing the sync folder or registering a project does not
+  require restarting the app.
+- `TrayIconHost` owns the tray icon (`H.NotifyIcon.WinUI`) and its menu:
+  current status, *Sync now*, *Open CodeChatSync*, *Start with Windows*,
+  *Exit*. A notification is only raised when a run needs attention — a
+  conflict, an aborted pull, or a missing configuration.
+- `MainWindow` is a status window, not the app's lifetime: closing it leaves
+  the app watching in the tray.
+
+The app deliberately starts **without showing a window**: it belongs in the
+tray, and opening a window on every login would be intrusive. The window is
+created on demand, the first time it is asked for.
+
+Showing it needs more than `Window.Activate()`. Windows only lets a process
+change the foreground window when it already owns it, which is not the case
+when the request comes from a tray click: the window is created, is genuinely
+visible, but sits *behind* the other applications, so the click looks like it
+did nothing. `ForegroundWindow.Bring` briefly attaches to the input queue of
+the thread that currently owns the foreground (`AttachThreadInput`), which
+restores that permission for the duration of the call, then detaches again.
+It also restores a window the user had minimised, which `Activate()` does not
+do.
+
+The sync flow itself lives in `SyncOrchestrator` (Core), so the CLI and the
+tray app run exactly the same logic. Core declares `ISyncPublisher` and
+`CodeChatSync.Git` implements it, which keeps the sync flow independent of
+Git.
 
 ## Auto-start
 
-Handled via the Windows/MSIX **StartupTask extension** instead of a
-manually created Scheduled Task. Practical benefit: it's cleanly removed by
-the system when the app is uninstalled, which a manually created Scheduled
-Task doesn't guarantee.
+Handled with a **per-user Windows `Run` entry**
+(`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`), toggled from the
+tray menu. The app currently ships unpackaged
+(`WindowsPackageType=None`), and the MSIX StartupTask extension originally
+considered requires package identity, so it is not available here. A
+per-user entry needs no elevation and only affects the user whose chats are
+being synced.
+
+Trade-off accepted: unlike a StartupTask, the entry is **not** removed
+automatically when the app is uninstalled, so the app removes it itself when
+auto-start is turned off. If the app is packaged as MSIX later, switching to
+StartupTask means replacing only `RegistryStartupEntryStore`: the rules live
+in `AutoStartManager` behind `IStartupEntryStore`.
+
+An entry pointing at a different build counts as disabled, so enabling
+auto-start repairs a stale entry left behind by an earlier install.
 
 ## Distribution (evaluated, not yet decided/implemented)
 

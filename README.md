@@ -33,6 +33,14 @@ and SSH keys keep working. Add `--no-git` to copy files only. Pulls are
 fast-forward only: if the same chat changed on two PCs, the run stops and
 leaves both sides untouched instead of merging two transcripts.
 
+## Tray app
+
+`CodeChatSync.App` runs in the notification area and syncs on its own once
+Visual Studio has been closed for long enough that its chat files have
+settled. Its menu shows the current status and offers *Sync now*, a status
+window, *Start with Windows*, and *Exit*. It only interrupts you when a run
+needs attention, such as a conflict or a pull that could not be completed.
+
 ## Why
 
 Anyone working across multiple client projects, in separate repos, on

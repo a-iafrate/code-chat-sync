@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background: rounded square (squircle-ish) -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bgGrad)"/>
+
+  <!-- chat bubble -->
+  <path d="M78,168 L60,198 L98,168 Z" fill="#FFFFFF"/>
+  <rect x="48" y="56" width="160" height="112" rx="32" fill="#FFFFFF"/>
+
+  <!-- sync ring (two opposing arcs) -->
+  <g fill="none" stroke="#4338CA" stroke-width="14" stroke-linecap="round">
+    <path d="M 94.17 103.69 A 36 36 0 0 1 161.83 103.69" />
+    <path d="M 161.83 128.31 A 36 36 0 0 1 94.17 128.31" />
+  </g>
+
+  <!-- arrowheads -->
+  <g fill="#4338CA">
+    <path d="M10,0 L-6,-7 L-6,7 Z" transform="translate(161.83,103.69) rotate(70)"/>
+    <path d="M10,0 L-6,-7 L-6,7 Z" transform="translate(94.17,128.31) rotate(250)"/>
+  </g>
+</svg>

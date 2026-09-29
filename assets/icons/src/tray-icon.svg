@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- transparent background, flat accent color, larger glyph, thicker strokes -->
+  <path d="M70,182 L48,218 L92,182 Z" fill="#4F46E5"/>
+  <rect x="22" y="40" width="212" height="150" rx="40" fill="#4F46E5"/>
+
+  <g fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round">
+    <path d="M 84 100 A 44 44 0 0 1 172 100" />
+    <path d="M 172 130 A 44 44 0 0 1 84 130" />
+  </g>
+  <g fill="#FFFFFF">
+    <path d="M13,0 L-8,-9 L-8,9 Z" transform="translate(172,100) rotate(70)"/>
+    <path d="M13,0 L-8,-9 L-8,9 Z" transform="translate(84,130) rotate(250)"/>
+  </g>
+</svg>

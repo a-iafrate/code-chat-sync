@@ -18,7 +18,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodeChatSync.Core\CodeChatSync.Core.csproj" />
+    <ProjectReference Include="..\CodeChatSync.Git\CodeChatSync.Git.csproj" />
+    <ProjectReference Include="..\CodeChatSync.Providers.VisualStudio\CodeChatSync.Providers.VisualStudio.csproj" />
   </ItemGroup>
 
 </Project>
