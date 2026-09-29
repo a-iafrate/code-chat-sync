@@ -2,13 +2,16 @@
 
 ## Current status
 
-Planning only. No code written yet. Next concrete step: the `discover`
-command.
+Phase 0 is in progress. The .NET 10 solution scaffold and a minimal WinUI 3
+app shell are in place. The CLI has an initial read-only `.vs` file inventory
+prototype that refuses to run while `devenv` is active. Next: run discovery
+only after all Visual Studio instances are closed, inspect the inventory, and
+identify the actual Copilot chat storage location before implementing sync.
 
 ## Phase 0 — Discover (first concrete step)
 
-- [ ] Root `global.json` pinning the SDK to **.NET 10**
-- [ ] Solution scaffolding: `CodeChatSync.Core`,
+- [x] Root `global.json` pinning the SDK to **.NET 10**
+- [x] Solution scaffolding: `CodeChatSync.Core`,
       `CodeChatSync.Providers.VisualStudio`, `CodeChatSync.Git`,
       `CodeChatSync.Cli`, `CodeChatSync.App` (WinUI 3), all targeting
       `net10.0` (`net10.0-windows` for `App`)

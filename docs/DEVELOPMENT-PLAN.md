@@ -6,9 +6,11 @@ Turn the decisions in [ARCHITECTURE.md](ARCHITECTURE.md) and the phase order in 
 
 ## Starting point
 
-- The repository is in the planning/scaffolding stage; no application implementation is present yet.
-- `src/CodeChatSync.slnx` currently contains an empty solution (`<Solution />`).
-- The next planned milestone remains Phase 0: scaffold the .NET 10 solution and investigate Visual Studio Copilot chat storage through a read-only `discover` command.
+- Phase 0 has started: the root `global.json` pins .NET SDK 10.0.401, and `src/CodeChatSync.slnx` contains the five planned project skeletons.
+- The WinUI 3 app currently has only a minimal launchable window; tray, watch, and configuration behavior remain future work.
+- The CLI has an initial read-only `.vs` inventory prototype that lists relative paths and file sizes, without opening contents, and refuses to run while any `devenv` process is active.
+- The full solution restored and built successfully with zero warnings and errors. CLI usage handling and the active-Visual-Studio safety guard were also verified.
+- The next milestone is to run discovery only after Visual Studio is closed to identify Copilot's actual storage layout. The prototype does not yet establish which files are chats.
 
 ## Delivery approach
 

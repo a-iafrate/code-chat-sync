@@ -3,8 +3,9 @@
 Syncs AI chats (Copilot in Visual Studio, other tools later) and personal
 prompts across the user's PCs, keeping them **out of client Git repos**.
 
-> Status: planning only, no code written yet. See
-> [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current phase.
+> Status: Phase 0 is in progress. The initial .NET 10 solution scaffold and
+> read-only `discover` prototype are underway. See [`docs/ROADMAP.md`](docs/ROADMAP.md)
+> for current progress.
 
 ## Why
 

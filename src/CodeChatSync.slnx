@@ -1,1 +1,11 @@
-<Solution />
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="ARM64" />
+  </Configurations>
+  <Project Path="CodeChatSync.App/CodeChatSync.App.csproj" />
+  <Project Path="CodeChatSync.Cli/CodeChatSync.Cli.csproj" />
+  <Project Path="CodeChatSync.Core/CodeChatSync.Core.csproj" />
+  <Project Path="CodeChatSync.Git/CodeChatSync.Git.csproj" />
+  <Project Path="CodeChatSync.Providers.VisualStudio/CodeChatSync.Providers.VisualStudio.csproj" />
+</Solution>

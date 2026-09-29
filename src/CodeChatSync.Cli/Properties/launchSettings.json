@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "discover": {
+      "commandName": "Project",
+      "commandLineArgs": "discover ../CodeChatSync.slnx",
+      "environmentVariables": {
+        "CODECHATSYNC_ALLOW_RUNNING_PROVIDER": "1"
+      }
+    }
+  }
+}
