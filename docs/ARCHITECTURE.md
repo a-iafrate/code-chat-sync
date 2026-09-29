@@ -332,6 +332,18 @@ tray app run exactly the same logic. Core declares `ISyncPublisher` and
 `CodeChatSync.Git` implements it, which keeps the sync flow independent of
 Git.
 
+### Icons
+
+`assets/icons` is the single source: the `.ico` files are linked into the app
+project and copied to the output, never duplicated in `src`. `app-icon.ico`
+is the executable icon (`ApplicationIcon`) and the window icon
+(`AppWindow.SetIcon`); `tray-icon.ico` is a simplified glyph for the
+notification area, where a detailed icon would be unreadable at 16 px.
+
+`AppIcons` loads the tray icon at the size reported by `SM_CXSMICON` rather
+than a hard-coded 16 px, so on a high-DPI display Windows picks the matching
+frame from the multi-resolution `.ico` instead of upscaling a small one.
+
 ## Auto-start
 
 Handled with a **per-user Windows `Run` entry**

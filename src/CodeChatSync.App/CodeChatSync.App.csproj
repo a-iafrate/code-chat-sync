@@ -15,7 +15,19 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>..\..\assets\icons\app-icon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <!-- assets\icons stays the single source for the icons; they are linked into the
+       output instead of being duplicated inside the project. -->
+  <ItemGroup>
+    <Content Include="..\..\assets\icons\app-icon.ico" Link="Assets\app-icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\assets\icons\tray-icon.ico" Link="Assets\tray-icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />

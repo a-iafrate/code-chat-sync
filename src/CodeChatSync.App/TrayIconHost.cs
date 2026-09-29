@@ -20,6 +20,7 @@ public sealed class TrayIconHost : IDisposable
     private readonly MenuFlyoutItem _statusItem;
     private readonly ToggleMenuFlyoutItem _autoStartItem;
     private readonly AutoStartManager _autoStart = new(new RegistryStartupEntryStore());
+    private readonly System.Drawing.Icon? _icon;
 
     private bool _disposed;
 
@@ -58,6 +59,14 @@ public sealed class TrayIconHost : IDisposable
             NoLeftClickDelay = true
         };
 
+        // Without an icon the tray entry is created but shows nothing, so it looks
+        // like the app never started.
+        _icon = AppIcons.LoadTrayIcon();
+        if (_icon is not null)
+        {
+            _trayIcon.Icon = _icon;
+        }
+
         _trayIcon.LeftClickCommand = new RelayCommand(() => ShowWindowRequested?.Invoke(this, EventArgs.Empty));
 
         _syncHost.SyncCompleted += OnSyncCompleted;
@@ -87,6 +96,7 @@ public sealed class TrayIconHost : IDisposable
 
         // Removes the icon straight away instead of leaving a dead one in the tray.
         _trayIcon.Dispose();
+        _icon?.Dispose();
     }
 
     private async Task SyncNowAsync()

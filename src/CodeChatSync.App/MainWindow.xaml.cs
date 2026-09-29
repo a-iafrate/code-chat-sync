@@ -14,6 +14,11 @@ public sealed partial class MainWindow : Window
 
         InitializeComponent();
 
+        if (File.Exists(AppIcons.AppIconPath))
+        {
+            AppWindow.SetIcon(AppIcons.AppIconPath);
+        }
+
         _syncHost.SyncCompleted += OnSyncCompleted;
         _syncHost.ProviderRunningChanged += OnProviderRunningChanged;
         Closed += OnClosed;
