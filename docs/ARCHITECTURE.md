@@ -53,8 +53,9 @@ repo; no sync-tool file should ever end up in a client repo.
 ```
 CodeChatSync.Core                      # config, provider registry, remote→project mapping,
                                         # date comparison, merge/conflict logic
-CodeChatSync.Providers.VisualStudio    # discover/map for Copilot chats in .vs
-CodeChatSync.Git                       # commit/push/pull on the private sync repo
+CodeChatSync.Providers.VisualStudio    # discover/map for Visual Studio Copilot chats
+CodeChatSync.Providers.Claude          # Claude Code transcript discovery and mapping
+CodeChatSync.Git
 CodeChatSync.Cli                       # lightweight CLI for terminal/scripting use:
                                         # add, sync, discover — coexists with
                                         # CodeChatSync.App, doesn't replace it
@@ -63,9 +64,8 @@ CodeChatSync.App                       # WinUI 3 app: tray icon, configuration w
                                         # (Windows-only, no more Blazor/Kestrel)
 ```
 
-Note: `Core`, `Providers.VisualStudio`, and `Git` stay platform-agnostic
-.NET libraries. Only `App` is tied to Windows (WinUI 3); if terminal use on
-Linux is ever needed (e.g. for a future Claude Code provider), `Cli` remains
+Note: `Core`, both provider libraries, and `Git` stay platform-agnostic
+.NET libraries. Only `App` is tied to Windows (WinUI 3); `Cli` remains
 available without a GUI.
 
 ## Provider contract
@@ -79,6 +79,11 @@ public interface IChatProvider
     string MapToLocal(ProjectInfo project, string relativePath); // for restore
 }
 ```
+
+`IChatSessionProvider` optionally exposes a stable per-session ID for local
+restore choices. `IChatRestoreValidator` optionally refuses an archived file
+before any local overwrite; Claude uses it to reject transcripts whose `cwd`
+does not match this PC's registered project path.
 
 `ProjectInfo` holds the project's identity (normalized Git remote) plus its
 current local path. The Core handles copying, date comparison, backup, and
@@ -139,8 +144,10 @@ The format is undocumented: all of this is best-effort and confined to
   name` mapping, stored as `codechatsync.json` at the sync folder root. It
   holds no local paths, so it stays valid on every PC.
 - Per-PC local config (not versioned):
-  `%APPDATA%\CodeChatSync\local-config.json`, holding the sync folder and the
-  local path of each registered project.
+  `%APPDATA%\CodeChatSync\local-config.json`, holding the sync folder, the
+  local path and enabled providers of each registered project. Missing
+  `providerIds` in legacy configurations means Visual Studio only. A single
+  Git remote can enable Visual Studio and Claude independently.
 - Per-PC sync baselines (not versioned):
   `%LOCALAPPDATA%\CodeChatSync\state\<provider>\<project>.json`, recording the
   content hash of each file at the last successful sync. These are what tell a
@@ -198,10 +205,19 @@ A `sync` run is pull → copy → commit → push:
 - Only the sync repository is ever touched. Client repositories are never
   committed to, pulled, or pushed.
 
-## Planned providers (after Visual Studio)
+## Claude Code provider and planned providers
 
-- **Claude Code** — sessions under `~/.claude/projects/`, folders encode the
-  absolute path: the provider must rename them on the destination PC.
+- **Claude Code (initial implementation)** — sessions under
+  `~/.claude/projects/` or `$CLAUDE_CONFIG_DIR/projects`. Candidate working
+  directories come from transcript `cwd` metadata, not decoding Claude's
+  undocumented, lossy folder naming. Only projects at a Git repository root
+  with a remote can be registered in the app. Only top-level session `.jsonl`
+  files are archived; memory, session artifacts, and subfolder sessions are
+  not included. An archived transcript's `cwd` must match the destination
+  PC's project path before restore; otherwise it is skipped explicitly.
+  Cross-PC path remapping and restored-session visibility are unverified.
+  The runtime guard currently recognizes process name `claude`, not every
+  possible host such as `node`; close Claude completely before syncing.
 - **Copilot CLI** — data under `~/.copilot`, per session.
 - **VS Code** — chats indexed by workspace hash; with VS Code's native
   GitHub-based sync, a dedicated provider is probably unnecessary.
@@ -279,20 +295,13 @@ window visually separates sync repository, automatic sync, registered projects,
 restore selection, and last-sync status. Registered projects have collapsed
 rows with provider, remote, folder, and actions shown on expansion; the add
 form is separate and its rarely used name/remote overrides are advanced options.
-At present only Visual Studio (Copilot) is wired into the app. The provider
-label in the UI is descriptive, not a per-project provider setting: local
-registration is keyed by Git remote and can later host more than one provider.
-
-For a future Claude Code provider, project registration must offer provider-
-specific discovery: enumerate candidate projects in Claude's own projects
-folder through the Claude provider, resolve each candidate to a Git remote,
-and let the user select a candidate before registering that remote and this
-PC's local project mapping. Do not infer project identity from Claude's encoded
-folder name or register path-only projects without a remote. Provider-specific
-metadata parsing, process locks, and session listing stay in the provider;
-Core keeps remote identity and the per-provider restore selection. The UI
-should only offer providers with implemented discovery and sync support; the
-current Visual Studio folder picker is not a substitute for Claude discovery.
+Visual Studio and Claude Code have separate add forms and provider-labeled
+rows in the app. Claude's add form enumerates candidate working directories
+from transcript metadata, accepts only Git repository roots with a remote,
+and can enable Claude alongside Visual Studio for the same remote. The local
+path is shared per remote; use the same repository root for both. Session
+lists, baselines and restore selections are provider-scoped. Provider-specific
+metadata parsing and local storage mapping remain in the provider, not Core.
 
 `CodeChatSync.Cli` remains available to anyone who
 prefers running `add`/`sync`/`discover` from a terminal or a script,

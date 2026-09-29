@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CodeChatSync.Core\CodeChatSync.Core.csproj" />
+    <ProjectReference Include="..\CodeChatSync.Providers.Claude\CodeChatSync.Providers.Claude.csproj" />
     <ProjectReference Include="..\CodeChatSync.Providers.VisualStudio\CodeChatSync.Providers.VisualStudio.csproj" />
     <ProjectReference Include="..\CodeChatSync.Git\CodeChatSync.Git.csproj" />
   </ItemGroup>

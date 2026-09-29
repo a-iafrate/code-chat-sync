@@ -25,6 +25,13 @@ public interface IChatProvider
     string MapToLocal(ProjectInfo project, string relativePath);
 }
 
+/// <summary>Optional provider check before an archived chat is copied to local storage.</summary>
+public interface IChatRestoreValidator
+{
+    /// <summary>Returns a reason to refuse the restore, or null when it is safe to copy.</summary>
+    string? GetRestoreRefusal(ProjectInfo project, string archivedPath);
+}
+
 /// <summary>Optional provider capability for per-session restore selection.</summary>
 public interface IChatSessionProvider : IChatProvider
 {

@@ -1,6 +1,7 @@
 using CodeChatSync.App.Services;
 using CodeChatSync.Core;
 using CodeChatSync.Git;
+using CodeChatSync.Providers.Claude;
 using CodeChatSync.Providers.VisualStudio;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -13,7 +14,7 @@ public sealed partial class MainWindow : Window
     private readonly SyncHost _syncHost;
     private string? _loadedFolder;
     private bool _loadingSettings;
-    private readonly List<(ProjectIdentity Project, CheckBox Restore, CheckBox All, List<(string Id, CheckBox Selected)> Sessions)> _sessionGroups = [];
+    private readonly List<(string ProviderId, ProjectIdentity Project, CheckBox Restore, CheckBox All, List<(string Id, CheckBox Selected)> Sessions)> _sessionGroups = [];
 
     public MainWindow(SyncHost syncHost)
     {
@@ -327,6 +328,91 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OnDiscoverClaudeClick(object sender, RoutedEventArgs e)
+    {
+        DiscoverClaudeButton.IsEnabled = false;
+        ClaudeCandidatePanel.Children.Clear();
+        try
+        {
+            var candidates = await Task.Run(() => ClaudeProjectDiscovery.DiscoverCandidates(new ProcessGuard())
+                .Select(candidate =>
+                {
+                    var root = candidate.LocalPathExists ? GitRemoteReader.FindRepositoryRoot(candidate.LocalPath) : null;
+                    var remote = root is not null && string.Equals(root, candidate.LocalPath, StringComparison.OrdinalIgnoreCase)
+                        ? GitRemoteReader.FindPrimaryRemoteUrl(root) : null;
+                    var eligible = candidate.LocalPathExists && !candidate.HasStorageCollision
+                        && candidate.StorageFolderName is not null
+                        && candidate.Sessions.Any(session => session.IsInStorageFolder)
+                        && !string.IsNullOrWhiteSpace(remote)
+                        && ProjectIdentity.TryFromRemote(remote, out _);
+                    return (Candidate: candidate, Remote: remote, Eligible: eligible);
+                }).ToArray());
+
+            if (candidates.Length == 0)
+            {
+                ClaudeCandidatePanel.Children.Add(new TextBlock { Text = "No Claude Code sessions with recorded project folders were found." });
+            }
+
+            foreach (var (candidate, remote, eligible) in candidates)
+            {
+                var row = new StackPanel { Spacing = 4, Padding = new Thickness(8) };
+                row.Children.Add(new TextBlock { Text = candidate.LocalPath, TextWrapping = TextWrapping.Wrap });
+                row.Children.Add(new TextBlock
+                {
+                    Text = eligible
+                        ? $"Git remote: {remote} · {candidate.Sessions.Count(session => session.IsInStorageFolder)} transcripts"
+                        : "Unavailable: folder missing, unsafe storage mapping, or no Git remote at the project root.",
+                    TextWrapping = TextWrapping.Wrap, Opacity = 0.7
+                });
+                if (eligible)
+                {
+                    var add = new Button { Content = "Add Claude Code", HorizontalAlignment = HorizontalAlignment.Left };
+                    add.Click += async (_, _) => await AddClaudeProjectAsync(candidate.LocalPath, add);
+                    row.Children.Add(add);
+                }
+
+                ClaudeCandidatePanel.Children.Add(row);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidDataException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            ShowProjectMessage($"Could not discover Claude Code projects: {exception.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            DiscoverClaudeButton.IsEnabled = true;
+        }
+    }
+
+    private async Task AddClaudeProjectAsync(string path, Button button)
+    {
+        button.IsEnabled = false;
+        try
+        {
+            if (!await _syncHost.AddClaudeProjectAsync(path))
+            {
+                ShowProjectMessage("A sync is in progress. Try adding the Claude Code project again when it finishes.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            ClaudeCandidatePanel.Children.Clear();
+            if (await LoadSettingsAsync())
+            {
+                ShowProjectMessage("Claude Code enabled for this Git project on this PC.", InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidDataException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            ShowProjectMessage($"Could not add Claude Code project: {exception.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
     private async Task RemoveProjectAsync(ProjectIdentity identity, Button button)
     {
         var confirm = new ContentDialog
@@ -407,7 +493,7 @@ public sealed partial class MainWindow : Window
         var groups = await Task.Run(() =>
         {
             var shared = SharedConfig.Load(syncRoot);
-            var results = new List<(ProjectIdentity Project, string Name, string LocalPath, DateTime? LastRunUtc, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> Sessions)>();
+            var results = new List<(string ProviderId, ProjectIdentity Project, string Name, string LocalPath, DateTime? LastRunUtc, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> Sessions)>();
             foreach (var entry in config.Projects)
             {
                 if (!ProjectIdentity.TryFromRemote(entry.Remote, out var identity) || identity is null)
@@ -422,17 +508,27 @@ public sealed partial class MainWindow : Window
                     throw new InvalidDataException($"Invalid shared project folder name: {name}");
                 }
 
-                var projectRoot = Path.Combine(syncRoot, "visualstudio", name);
-                var sessions = CopilotChatDiscovery.DiscoverSessions(projectRoot)
-                    .Select(session => (Id: Path.GetFileName(session.SessionDirectory), session.Name, session.UpdatedAt))
-                    .ToArray();
-                var statePath = new SyncWorkspace(config, shared).GetStatePath("visualstudio", new ProjectInfo
+                foreach (var providerId in LocalConfig.GetEnabledProviderIds(entry))
                 {
-                    Identity = identity, LocalPath = entry.LocalPath, DisplayName = name
-                });
-                DateTime? lastRun = File.Exists(statePath) ? File.GetLastWriteTimeUtc(statePath) : null;
-                results.Add((identity, name, entry.LocalPath, lastRun,
-                    config.FindRestoreSelection("visualstudio", identity), sessions));
+                    var projectRoot = Path.Combine(syncRoot, providerId, name);
+                    IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> sessions = providerId switch
+                    {
+                        "visualstudio" => CopilotChatDiscovery.DiscoverSessions(projectRoot)
+                            .Select(session => (Id: Path.GetFileName(session.SessionDirectory), session.Name, session.UpdatedAt))
+                            .ToArray(),
+                        "claudecode" => ClaudeArchivedChatDiscovery.Discover(projectRoot)
+                            .Select(session => (session.Id, session.Title, (DateTimeOffset?)new DateTimeOffset(session.UpdatedAt)))
+                            .ToArray(),
+                        _ => throw new InvalidDataException($"Unsupported registered provider: {providerId}")
+                    };
+                    var statePath = new SyncWorkspace(config, shared).GetStatePath(providerId, new ProjectInfo
+                    {
+                        Identity = identity, LocalPath = entry.LocalPath, DisplayName = name
+                    });
+                    DateTime? lastRun = File.Exists(statePath) ? File.GetLastWriteTimeUtc(statePath) : null;
+                    results.Add((providerId, identity, name, entry.LocalPath, lastRun,
+                        config.FindRestoreSelection(providerId, identity), sessions));
+                }
             }
 
             return results;
@@ -447,8 +543,9 @@ public sealed partial class MainWindow : Window
 
         foreach (var group in groups)
         {
+            var providerName = group.ProviderId == "claudecode" ? "Claude Code" : "Visual Studio (Copilot)";
             var projectDetails = new StackPanel { Spacing = 8, Padding = new Thickness(8) };
-            projectDetails.Children.Add(new TextBlock { Text = "Provider: Visual Studio (Copilot)" });
+            projectDetails.Children.Add(new TextBlock { Text = $"Provider: {providerName}" });
             projectDetails.Children.Add(new TextBlock { Text = $"Git remote: {group.Project.NormalizedRemote}", TextWrapping = TextWrapping.Wrap });
             projectDetails.Children.Add(new TextBlock { Text = $"Local folder: {group.LocalPath}", TextWrapping = TextWrapping.Wrap });
             projectDetails.Children.Add(new TextBlock { Text = group.LastRunUtc is { } time
@@ -464,7 +561,7 @@ public sealed partial class MainWindow : Window
             projectDetails.Children.Add(actions);
             ProjectsPanel.Children.Add(new Expander
             {
-                Header = $"{group.Name} · Visual Studio (Copilot) · {group.Sessions.Count} archived chats",
+                Header = $"{group.Name} · {providerName} · {group.Sessions.Count} archived chats",
                 Content = projectDetails,
                 IsExpanded = false
             });
@@ -476,7 +573,7 @@ public sealed partial class MainWindow : Window
                 IsChecked = group.Selection is null || group.Selection.SessionIds.Count > 0,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            ToolTipService.SetToolTip(restore, "Controls restores to Visual Studio on this PC; archived chats remain in Git.");
+            ToolTipService.SetToolTip(restore, $"Controls {providerName} restores on this PC; archived chats remain in Git.");
             var all = new CheckBox { Content = "Restore all chats, including future ones", IsChecked = group.Selection is null };
             container.Children.Add(all);
             var selectionSummary = new TextBlock { Opacity = 0.7 };
@@ -538,12 +635,12 @@ public sealed partial class MainWindow : Window
                 all.IsEnabled = enabled;
                 sessionPanel.Visibility = enabled && !restoreAll ? Visibility.Visible : Visibility.Collapsed;
                 expander.Header = !enabled
-                    ? $"{group.Name} · restore off"
+                    ? $"{group.Name} · {providerName} · restore off"
                     : restoreAll
-                        ? $"{group.Name} · {items.Count} chats · restore all"
-                        : $"{group.Name} · {selectedCount}/{items.Count} chats selected";
+                        ? $"{group.Name} · {providerName} · {items.Count} chats · restore all"
+                        : $"{group.Name} · {providerName} · {selectedCount}/{items.Count} chats selected";
                 selectionSummary.Text = !enabled
-                    ? "No chats from this project will be restored to Visual Studio on this PC. Archived and existing local chats remain unchanged."
+                    ? $"No {providerName} chats from this project will be restored on this PC. Archived and existing local chats remain unchanged."
                     : restoreAll
                         ? $"All chats selected ({items.Count} currently archived)."
                         : $"{selectedCount} of {items.Count} archived chats selected. Future chats will not be restored automatically.";
@@ -580,7 +677,7 @@ public sealed partial class MainWindow : Window
             };
             UpdateSelectionSummary();
             SessionSelectionPanel.Children.Add(projectHeader);
-            _sessionGroups.Add((group.Project, restore, all, items));
+            _sessionGroups.Add((group.ProviderId, group.Project, restore, all, items));
         }
 
         SaveSelectionButton.IsEnabled = true;
@@ -605,7 +702,7 @@ public sealed partial class MainWindow : Window
     private async void OnSaveSelectionClick(object sender, RoutedEventArgs e)
     {
         var selections = _sessionGroups.Select(group =>
-            (group.Project, SessionIds: group.Restore.IsChecked != true
+            (group.ProviderId, group.Project, SessionIds: group.Restore.IsChecked != true
                 ? (IReadOnlyList<string>)[]
                 : group.All.IsChecked == true
                     ? null

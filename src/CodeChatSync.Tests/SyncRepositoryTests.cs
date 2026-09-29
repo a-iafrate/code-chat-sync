@@ -251,6 +251,37 @@ public sealed class SyncRepositoryTests
         Assert.True(repository.GetStatus().HasRemote);
     }
 
+    [Fact]
+    public void SetOriginRemoteUrl_AcceptsAzureDevOpsUrlWithUsernameOnlyUserInfo()
+    {
+        using var temp = new TempDirectory();
+        var repository = new SyncRepository(temp.Path);
+        repository.Initialize();
+        repository.SetOriginRemoteUrl("https://github.com/contoso/sync.git");
+        const string azureUrl = "https://gruppostorti@dev.azure.com/gruppostorti/middleware/_git/middleware";
+
+        repository.SetOriginRemoteUrl(azureUrl);
+
+        Assert.Equal(azureUrl, repository.GetOriginRemoteUrl());
+        Assert.True(repository.GetStatus().HasRemote);
+    }
+
+    [Fact]
+    public void SetOriginRemoteUrl_RejectsAzureDevOpsUrlWithUsernameAndPasswordWithoutReplacingValidOrigin()
+    {
+        using var temp = new TempDirectory();
+        var repository = new SyncRepository(temp.Path);
+        repository.Initialize();
+        const string validUrl = "https://gruppostorti@dev.azure.com/gruppostorti/middleware/_git/middleware";
+        Git.RunOrThrow(temp.Path, ["remote", "add", "origin", validUrl]);
+
+        var exception = Assert.Throws<ArgumentException>(() => repository.SetOriginRemoteUrl(
+            "https://gruppostorti:token@dev.azure.com/gruppostorti/middleware/_git/middleware"));
+
+        Assert.Contains("credentials", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(validUrl, repository.GetOriginRemoteUrl());
+    }
+
     private static SyncRepository CreateRepository(string path, string? remotePath = null)
     {
         var repository = new SyncRepository(path);

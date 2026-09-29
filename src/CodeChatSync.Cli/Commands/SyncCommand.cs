@@ -1,6 +1,7 @@
 using System.CommandLine;
 using CodeChatSync.Core;
 using CodeChatSync.Git;
+using CodeChatSync.Providers.Claude;
 using CodeChatSync.Providers.VisualStudio;
 
 namespace CodeChatSync.Cli.Commands;
@@ -66,14 +67,28 @@ internal static class SyncCommand
         var publisher = dryRun || noGit ? null : CreatePublisher(syncRoot);
         Console.WriteLine();
 
-        var provider = new VisualStudioChatProvider();
+        var processGuard = new ProcessGuard();
+        var providers = new IChatProvider[]
+        {
+            new VisualStudioChatProvider(),
+            new ClaudeCodeChatProvider(processGuard)
+        };
         var orchestrator = new SyncOrchestrator(
-            provider,
+            providers,
             new SyncWorkspace(localConfig, SharedConfig.Load(syncRoot)),
-            new ChatSyncService(new ProcessGuard()),
+            new ChatSyncService(processGuard),
             publisher);
 
-        var result = orchestrator.Run(new SyncRunOptions { DryRun = dryRun, ProjectFilter = projectFilter });
+        SyncRunResult result;
+        try
+        {
+            result = orchestrator.Run(new SyncRunOptions { DryRun = dryRun, ProjectFilter = projectFilter });
+        }
+        catch (ClaudeCodeRunningException exception)
+        {
+            Console.Error.WriteLine(exception.Message);
+            return 1;
+        }
 
         foreach (var unresolved in result.Unresolved)
         {
@@ -108,7 +123,7 @@ internal static class SyncCommand
 
         foreach (var project in result.Projects)
         {
-            Console.WriteLine($"{project.Project.Identity.NormalizedRemote} -> {provider.Id}/{project.Project.SyncFolderName}");
+            Console.WriteLine($"{project.Project.Identity.NormalizedRemote} -> {project.ProviderId}/{project.Project.SyncFolderName}");
             Report(project.Report);
             Console.WriteLine();
         }
@@ -120,8 +135,8 @@ internal static class SyncCommand
 
         if (result.HasBlockedPulls)
         {
-            Console.WriteLine("Some files still need Visual Studio to be closed; pushes completed as usual.");
-            Console.WriteLine("Run 'codechatsync sync' again after closing it to finish pulling them.");
+            Console.WriteLine("Some files still need their provider to be closed; pushes completed as usual.");
+            Console.WriteLine("Run 'codechatsync sync' again after closing the provider to finish pulling them.");
         }
 
         if (result.HasConflicts)

@@ -112,11 +112,7 @@ public sealed class SyncRepository(string repositoryPath, GitCommandRunner? runn
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
         var trimmed = url.Trim();
-        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
-            && uri.Scheme is "http" or "https" && uri.UserInfo.Length > 0)
-        {
-            throw new ArgumentException("Do not put credentials in the remote URL. Use your Git credential helper instead.", nameof(url));
-        }
+        GitRemoteUrlGuard.ThrowIfContainsPassword(trimmed, nameof(url));
 
         EnsureRepositoryRoot();
         var arguments = HasOrigin()

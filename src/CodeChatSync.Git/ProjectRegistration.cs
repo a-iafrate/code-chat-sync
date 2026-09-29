@@ -5,8 +5,12 @@ namespace CodeChatSync.Git;
 /// <summary>Registers local project paths by Git remote without touching client repositories.</summary>
 public static class ProjectRegistration
 {
-    public static ProjectInfo Add(string path, string? name = null, string? remoteOverride = null,
-        string? configPath = null)
+    public static ProjectInfo Add(
+        string path,
+        string? name = null,
+        string? remoteOverride = null,
+        string? configPath = null,
+        string providerId = LocalConfig.DefaultProviderId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var fullPath = Path.GetFullPath(path.Trim());
@@ -41,11 +45,7 @@ public static class ProjectRegistration
             throw new InvalidOperationException("No unambiguous Git remote was found. Add an origin or provide a remote URL explicitly.");
         }
 
-        if (Uri.TryCreate(remote, UriKind.Absolute, out var url)
-            && url.Scheme is "http" or "https" && url.UserInfo.Length > 0)
-        {
-            throw new ArgumentException("Remote URLs must not contain credentials. Use a Git credential helper.", nameof(remoteOverride));
-        }
+        GitRemoteUrlGuard.ThrowIfContainsPassword(remote, nameof(remoteOverride));
 
         var identity = ProjectIdentity.FromRemote(remote);
         var shared = SharedConfig.Load(syncRoot);
@@ -59,12 +59,13 @@ public static class ProjectRegistration
 
         // Never rename a folder already used for synced chats implicitly.
         if (existing is not null && !string.Equals(existing.Name, folderName, StringComparison.OrdinalIgnoreCase)
-            && Directory.Exists(Path.Combine(syncRoot, "visualstudio", existing.Name)))
+            && new[] { "visualstudio", "claudecode" }.Any(providerId =>
+                Directory.Exists(Path.Combine(syncRoot, providerId, existing.Name))))
         {
             throw new InvalidOperationException("The project already has archived chats. Keep its existing sync folder name.");
         }
 
-        local.AddOrUpdate(identity, registeredPath);
+        local.AddOrUpdate(identity, registeredPath, providerId);
         shared.Save(syncRoot);
         local.Save(configPath);
         return new ProjectInfo { Identity = identity, LocalPath = registeredPath, DisplayName = folderName };

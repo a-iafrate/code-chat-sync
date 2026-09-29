@@ -13,6 +13,10 @@ public sealed record LocalProjectEntry
     /// <summary>Where the project currently lives on this PC.</summary>
     [JsonPropertyName("localPath")]
     public required string LocalPath { get; init; }
+
+    /// <summary>Providers enabled for this project. Null keeps legacy Visual Studio-only behavior.</summary>
+    [JsonPropertyName("providerIds")]
+    public List<string>? ProviderIds { get; init; }
 }
 
 /// <summary>Sessions selected for restore on this PC; an absent entry means restore all.</summary>
@@ -139,22 +143,64 @@ public sealed class LocalConfig
     /// Registers a project, or updates its local path when it moved on this PC.
     /// </summary>
     /// <returns><see langword="true"/> when the project was not registered before.</returns>
-    public bool AddOrUpdate(ProjectIdentity identity, string localPath)
+    public bool AddOrUpdate(
+        ProjectIdentity identity,
+        string localPath,
+        string providerId = DefaultProviderId)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentException.ThrowIfNullOrWhiteSpace(localPath);
 
+        var normalizedProviderId = NormalizeProviderId(providerId);
         var fullPath = Path.GetFullPath(localPath);
         var existing = Find(identity);
         if (existing is not null)
         {
+            var providerIds = GetEnabledProviderIds(existing).ToList();
+            if (!providerIds.Contains(normalizedProviderId, StringComparer.OrdinalIgnoreCase))
+            {
+                providerIds.Add(normalizedProviderId);
+            }
+
             Projects.Remove(existing);
-            Projects.Add(existing with { Remote = identity.NormalizedRemote, LocalPath = fullPath });
+            Projects.Add(existing with
+            {
+                Remote = identity.NormalizedRemote,
+                LocalPath = fullPath,
+                ProviderIds = providerIds
+            });
             return false;
         }
 
-        Projects.Add(new LocalProjectEntry { Remote = identity.NormalizedRemote, LocalPath = fullPath });
+        Projects.Add(new LocalProjectEntry
+        {
+            Remote = identity.NormalizedRemote,
+            LocalPath = fullPath,
+            ProviderIds = [normalizedProviderId]
+        });
         return true;
+    }
+
+    public const string DefaultProviderId = "visualstudio";
+
+    /// <summary>Null provider lists in older configs mean Visual Studio only.</summary>
+    public static IReadOnlyList<string> GetEnabledProviderIds(LocalProjectEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        return entry.ProviderIds ?? [DefaultProviderId];
+    }
+
+    private static string NormalizeProviderId(string providerId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
+        var normalized = providerId.Trim().ToLowerInvariant();
+        if (normalized is "." or ".." || normalized.Any(character =>
+            !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_' and not '.'))
+        {
+            throw new ArgumentException("Provider IDs must be safe folder names.", nameof(providerId));
+        }
+
+        return normalized;
     }
 
     /// <summary>Null means restore every session, including newly discovered ones.</summary>

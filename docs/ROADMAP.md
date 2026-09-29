@@ -10,8 +10,11 @@ machine-wide session index, which may include unrelated client projects.
 
 Phase 4 is in progress. The tray window now configures the local private sync
 folder and its Git `origin`, and allows each PC to choose which synced Copilot
-sessions to restore locally without deleting or pruning the Git clone. The
-window now registers projects by Git remote, lists their paths and last local
+sessions to restore locally without deleting or pruning the Git clone. Claude
+Code project selection from its own projects folder and separate per-provider
+sync/restore are available, but cross-path Claude transcript restore is
+blocked until safe remapping and resumption are verified. The
+window registers projects by Git remote, lists their paths and last local
 sync run, removes local registrations without deleting archived chats, and can
 sync one project at a time. The automatic-sync preference is local to each PC;
 manual sync remains available when it is disabled. Conflict resolution and
@@ -106,10 +109,15 @@ without a recorded repository still need validation.
 
 ## Phase 5 — Future providers (once Visual Studio works well)
 
-- [ ] Claude Code provider (`~/.claude/projects/`, path remapping): discover
-      candidate projects from Claude's folder, map them to Git remotes, and
-      present a selectable list when adding a Claude project. Validate path
-      mapping and runtime lock rules before enabling sync and restore in the UI.
+- [x] Claude Code provider (`~/.claude/projects/`): discover candidates from
+      transcript metadata, map Git remotes, and present a selectable list in
+      the app. Archive first-level `.jsonl` transcripts under a separate
+      provider key; permit same-path restores and reject foreign/missing `cwd`.
+- [ ] Safely remap Claude transcript paths between PCs and verify Claude can
+      display/resume the restored sessions. Extend discovery to sessions
+      started in project subfolders and verify process detection for Claude
+      hosted by another process name such as `node` before claiming complete
+      runtime protection or cross-PC restoration.
 - [ ] Copilot CLI provider (`~/.copilot`)
 - [ ] Evaluate a VS Code provider (probably unnecessary, given VS Code's
       native sync is already available)

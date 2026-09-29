@@ -1,12 +1,12 @@
 using CodeChatSync.Core;
 using CodeChatSync.Git;
+using CodeChatSync.Providers.Claude;
 using CodeChatSync.Providers.VisualStudio;
 
 namespace CodeChatSync.App.Services;
 
 /// <summary>
-/// Composes the sync pieces for the tray app: it watches Visual Studio, syncs once
-/// it has been closed long enough, and reports what happened.
+/// Composes both chat providers for the tray app, watches their processes, and reports sync outcomes.
 /// </summary>
 /// <remarks>
 /// Configuration is re-read for every run, so changing the sync folder or
@@ -14,31 +14,45 @@ namespace CodeChatSync.App.Services;
 /// </remarks>
 public sealed class SyncHost : IAsyncDisposable
 {
-    private readonly VisualStudioChatProvider _provider = new();
+    private readonly IProcessGuard _processGuard;
+    private readonly VisualStudioChatProvider _visualStudioProvider;
+    private readonly ClaudeCodeChatProvider _claudeProvider;
     private readonly SyncCoordinator _coordinator;
-    private readonly ProviderWatcher _watcher;
+    private readonly ProviderWatcher[] _watchers;
     private readonly CancellationTokenSource _cancellation = new();
+    private readonly object _providerRunningLock = new();
 
-    private Task? _watching;
+    private Task[]? _watching;
+    private bool _reportedProviderRunning;
 
     public SyncHost(WatchOptions? watchOptions = null)
     {
+        _processGuard = new ProcessGuard();
+        _visualStudioProvider = new VisualStudioChatProvider();
+        _claudeProvider = new ClaudeCodeChatProvider(_processGuard);
         _coordinator = new SyncCoordinator(CreateOrchestrator);
-        _watcher = new ProviderWatcher(new ProcessGuard(), _provider.ProcessNames, watchOptions);
+        _watchers =
+        [
+            new ProviderWatcher(_processGuard, _visualStudioProvider.ProcessNames, watchOptions),
+            new ProviderWatcher(_processGuard, _claudeProvider.ProcessNames, watchOptions)
+        ];
 
         _coordinator.Completed += (_, outcome) => SyncCompleted?.Invoke(this, outcome);
-        _watcher.ProviderRunningChanged += (_, running) => ProviderRunningChanged?.Invoke(this, running);
-        _watcher.SyncRequested += OnSyncRequested;
+        foreach (var watcher in _watchers)
+        {
+            watcher.ProviderRunningChanged += OnProviderRunningChanged;
+            watcher.SyncRequested += OnSyncRequested;
+        }
     }
 
     /// <summary>Raised when a sync run finishes, from a background thread.</summary>
     public event EventHandler<SyncOutcome>? SyncCompleted;
 
-    /// <summary>Raised when Visual Studio starts or stops.</summary>
+    /// <summary>Raised when either provider starts or stops; true while any provider is running.</summary>
     public event EventHandler<bool>? ProviderRunningChanged;
 
-    /// <summary>Whether Visual Studio was running at the last check.</summary>
-    public bool IsProviderRunning => _watcher.IsProviderRunning;
+    /// <summary>Whether any registered chat provider was running at the last check.</summary>
+    public bool IsProviderRunning => _watchers.Any(watcher => watcher.IsProviderRunning);
 
     /// <summary>Whether a sync is in progress.</summary>
     public bool IsSyncing => _coordinator.IsRunning;
@@ -46,8 +60,10 @@ public sealed class SyncHost : IAsyncDisposable
     /// <summary>Outcome of the most recent sync, if any has run yet.</summary>
     public SyncOutcome? LastOutcome => _coordinator.LastOutcome;
 
-    /// <summary>Starts watching for Visual Studio closing.</summary>
-    public void Start() => _watching ??= _watcher.WatchAsync(_cancellation.Token);
+    /// <summary>Starts watching for either provider closing.</summary>
+    public void Start() => _watching ??= _watchers
+        .Select(watcher => watcher.WatchAsync(_cancellation.Token))
+        .ToArray();
 
     /// <summary>Runs a sync now, for the tray's "Sync now" command.</summary>
     public Task<SyncOutcome> SyncNowAsync() => _coordinator.RunAsync(cancellationToken: _cancellation.Token);
@@ -55,11 +71,45 @@ public sealed class SyncHost : IAsyncDisposable
     public Task<SyncOutcome> SyncProjectAsync(ProjectIdentity identity) =>
         _coordinator.RunAsync(new SyncRunOptions { ExactProjectRemote = identity.NormalizedRemote }, _cancellation.Token);
 
-    public Task<bool> AddProjectAsync(string path, string? name, string? remote) =>
-        _coordinator.TryUpdateConfigurationAsync(() => ProjectRegistration.Add(path, name, remote), _cancellation.Token);
+    public Task<bool> AddProjectAsync(
+        string path,
+        string? name,
+        string? remote,
+        string providerId = LocalConfig.DefaultProviderId) =>
+        _coordinator.TryUpdateConfigurationAsync(
+            () => ProjectRegistration.Add(path, name, remote, providerId: providerId),
+            _cancellation.Token);
 
     public Task<bool> RemoveProjectAsync(ProjectIdentity identity) =>
         _coordinator.TryUpdateConfigurationAsync(() => ProjectRegistration.Remove(identity), _cancellation.Token);
+
+    public Task<bool> AddClaudeProjectAsync(string path) =>
+        _coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            var candidate = ClaudeProjectDiscovery.DiscoverCandidates(_processGuard)
+                .FirstOrDefault(item => string.Equals(item.LocalPath, path, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException("The selected Claude Code project is no longer available. Refresh the list.");
+            if (!candidate.LocalPathExists || candidate.HasStorageCollision
+                || candidate.StorageFolderName is null || !candidate.Sessions.Any(session => session.IsInStorageFolder))
+            {
+                throw new InvalidOperationException("The Claude Code project has no safely mapped transcripts on this PC.");
+            }
+
+            var root = GitRemoteReader.FindRepositoryRoot(candidate.LocalPath);
+            if (root is null || !string.Equals(root, candidate.LocalPath, StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(GitRemoteReader.FindPrimaryRemoteUrl(root)))
+            {
+                throw new InvalidOperationException("The Claude Code project must match a Git repository root with a remote.");
+            }
+
+            var existing = LocalConfig.Load().Find(ProjectIdentity.FromRemote(GitRemoteReader.FindPrimaryRemoteUrl(root)!));
+            if (existing is not null && !string.Equals(existing.LocalPath, root, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("This Git remote is already registered at a different local folder on this PC.");
+            }
+
+            ProjectRegistration.Add(root, providerId: _claudeProvider.Id);
+        }, _cancellation.Token);
 
     /// <summary>Changes this PC's automatic sync preference without racing a sync.</summary>
     public Task<bool> SaveAutomaticSyncAsync(bool enabled) =>
@@ -86,13 +136,20 @@ public sealed class SyncHost : IAsyncDisposable
 
     /// <summary>Save session restore choices only on this PC, without racing a sync.</summary>
     public Task<bool> SaveRestoreSelectionsAsync(
-        IReadOnlyList<(ProjectIdentity Project, IReadOnlyList<string>? SessionIds)> selections) =>
+        IReadOnlyList<(string ProviderId, ProjectIdentity Project, IReadOnlyList<string>? SessionIds)> selections) =>
         _coordinator.TryUpdateConfigurationAsync(() =>
         {
             var config = LocalConfig.Load();
-            foreach (var (project, sessionIds) in selections)
+            foreach (var (providerId, project, sessionIds) in selections)
             {
-                config.SetRestoreSelection(_provider.Id, project, sessionIds);
+                var entry = config.Find(project)
+                    ?? throw new InvalidOperationException($"Project not registered on this PC: {project.NormalizedRemote}");
+                if (!LocalConfig.GetEnabledProviderIds(entry).Contains(providerId, StringComparer.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Provider '{providerId}' is not enabled for {project.NormalizedRemote}.");
+                }
+
+                config.SetRestoreSelection(providerId, project, sessionIds);
             }
 
             config.Save();
@@ -106,7 +163,7 @@ public sealed class SyncHost : IAsyncDisposable
         {
             try
             {
-                await _watching.ConfigureAwait(false);
+                await Task.WhenAll(_watching).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -117,8 +174,28 @@ public sealed class SyncHost : IAsyncDisposable
         _cancellation.Dispose();
     }
 
+    private void OnProviderRunningChanged(object? sender, bool running)
+    {
+        lock (_providerRunningLock)
+        {
+            var isRunning = IsProviderRunning;
+            if (isRunning == _reportedProviderRunning)
+            {
+                return;
+            }
+
+            _reportedProviderRunning = isRunning;
+            ProviderRunningChanged?.Invoke(this, isRunning);
+        }
+    }
+
     private void OnSyncRequested(object? sender, WatchTriggerReason reason)
     {
+        if (IsProviderRunning)
+        {
+            return;
+        }
+
         try
         {
             if (!LocalConfig.Load().AutomaticSyncOnProviderClose)
@@ -160,9 +237,9 @@ public sealed class SyncHost : IAsyncDisposable
         var publisher = GitSyncPublisher.TryCreate(syncRoot, out _);
 
         return new SyncOrchestrator(
-            _provider,
+            [_visualStudioProvider, _claudeProvider],
             new SyncWorkspace(localConfig, SharedConfig.Load(syncRoot)),
-            new ChatSyncService(new ProcessGuard()),
+            new ChatSyncService(_processGuard),
             publisher);
     }
 }

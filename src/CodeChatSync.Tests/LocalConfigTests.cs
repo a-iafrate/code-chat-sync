@@ -205,7 +205,10 @@ public class LocalConfigTests : IDisposable
 
         Assert.Equal(2, serializedSelections.GetArrayLength());
         Assert.Equal(config.SyncRootPath, reloaded.SyncRootPath);
-        Assert.Equal(config.Projects, reloaded.Projects);
+        var project = Assert.Single(reloaded.Projects);
+        Assert.Equal(identity.NormalizedRemote, project.Remote);
+        Assert.Equal(_root.Combine("local-project"), project.LocalPath);
+        Assert.Equal(["visualstudio"], project.ProviderIds);
         Assert.Equal(["session-a", "session-b"], reloaded.FindRestoreSelection("visualstudio", identity)!.SessionIds);
         Assert.Empty(reloaded.FindRestoreSelection("visualstudio", emptyIdentity)!.SessionIds);
 

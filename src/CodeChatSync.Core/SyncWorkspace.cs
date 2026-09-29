@@ -60,6 +60,14 @@ public sealed class SyncWorkspace(LocalConfig localConfig, SharedConfig sharedCo
         return new ProjectResolution { Projects = projects, Unresolved = unresolved };
     }
 
+    /// <summary>Providers enabled for a project; older entries default to Visual Studio.</summary>
+    public IReadOnlyList<string> GetEnabledProviderIds(ProjectInfo project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        var entry = _localConfig.Find(project.Identity);
+        return entry is null ? [] : LocalConfig.GetEnabledProviderIds(entry);
+    }
+
     /// <summary>Per-PC restore selection, or null to restore every session.</summary>
     public LocalRestoreSelection? GetRestoreSelection(string providerId, ProjectInfo project) =>
         _localConfig.FindRestoreSelection(providerId, project.Identity);

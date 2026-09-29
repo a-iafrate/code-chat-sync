@@ -7,6 +7,7 @@
   <Project Path="CodeChatSync.Cli/CodeChatSync.Cli.csproj" />
   <Project Path="CodeChatSync.Core/CodeChatSync.Core.csproj" />
   <Project Path="CodeChatSync.Git/CodeChatSync.Git.csproj" />
+  <Project Path="CodeChatSync.Providers.Claude/CodeChatSync.Providers.Claude.csproj" />
   <Project Path="CodeChatSync.Providers.VisualStudio/CodeChatSync.Providers.VisualStudio.csproj" />
   <Project Path="CodeChatSync.Tests/CodeChatSync.Tests.csproj" />
 </Solution>

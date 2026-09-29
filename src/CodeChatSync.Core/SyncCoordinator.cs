@@ -116,7 +116,7 @@ public sealed class SyncCoordinator(Func<SyncOrchestrator> orchestratorFactory)
         {
             return new SyncOutcome(SyncOutcomeStatus.NotConfigured, exception.Message);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             return new SyncOutcome(SyncOutcomeStatus.Failed, $"The sync failed: {exception.Message}");
         }

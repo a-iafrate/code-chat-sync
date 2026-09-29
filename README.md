@@ -1,7 +1,7 @@
 # CodeChatSync
 
-Syncs AI chats (Copilot in Visual Studio, other tools later) and personal
-prompts across the user's PCs, keeping them **out of client Git repos**.
+Syncs AI chats (Visual Studio Copilot and Claude Code) across the user's PCs,
+keeping them **out of client Git repos**. Personal prompts are planned.
 
 > Status: Phases 0–3 are complete; Phase 4 (the configuration window) is in
 > progress. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current progress.
@@ -21,9 +21,11 @@ codechatsync sync --dry-run
 codechatsync sync
 ```
 
-`codechatsync discover` lists the chat sessions found on this PC without
-copying anything. Local chat files are only written while Visual Studio is
-closed, and every local file is backed up before being overwritten.
+`codechatsync discover` lists Visual Studio chats found on this PC without
+copying anything. Provider-owned chats are accessed only while the relevant
+provider is closed, and every existing local file is backed up before overwrite.
+The CLI `add` command registers Visual Studio; add Claude Code projects from
+the tray app's Claude project list.
 
 `sync` pulls the sync repository, copies the chats, then commits and pushes,
 using the `git` you already have installed so your existing credential helper
@@ -49,9 +51,13 @@ Under *Projects on this PC*, expand *Add a project* and choose a folder inside
 a project's Git repository. The app detects its Git remote; if none is available,
 enter one under *Advanced options*. Registered projects are collapsed by default;
 expand one to see its provider, remote, local folder and last sync run, sync just
-that project, or remove its registration on this PC. Currently only Visual Studio
-(Copilot) is supported. Removing a registration does **not** delete local or
-archived chats. `codechatsync add` remains available in the CLI.
+that project, or remove its registration on this PC. To add Claude Code,
+expand *Add a Claude Code project* and select a project discovered from
+`%USERPROFILE%\.claude\projects` (or `$CLAUDE_CONFIG_DIR\projects`). Claude
+candidates need a local Git repository root with a remote; the same remote
+may have both providers, displayed separately. Removing a registration does
+**not** delete local or archived chats. `codechatsync add` remains available
+for Visual Studio in the CLI.
 
 Under *Automatic sync*, uncheck the option and save to stop syncing automatically
 after Visual Studio closes on this PC. It is enabled by default, including for
@@ -61,9 +67,9 @@ Under *Appearance*, choose *Use system setting*, *Light*, or *Dark* and save to
 change the window theme immediately on this PC. Existing installations follow
 the Windows setting by default; the native tray menu follows Windows independently.
 
-Under *Chats to restore on this PC*,
-collapsed project and save to prevent all its archived chats from being restored
-to Visual Studio on this machine. Expand a project to select individual chats;
+Under *Chats to restore on this PC*, uncheck a provider's collapsed project
+and save to prevent all its archived chats from being restored on this machine.
+Expand a project to select individual chats;
 the searchable list shows short titles, dates and session IDs. By default all
 current and future sessions are restored. Uncheck *Restore all chats* to choose
 a subset and save: future chats are excluded until selected. Re-enabling a
@@ -71,6 +77,18 @@ project with no saved selection starts with restore all. The full Git clone
 remains available for backup; a different PC can select a different subset.
 These choices do not stop uploads from registered projects and do **not** delete
 existing local chats or anything from the repository.
+
+**Claude Code limitation:** only top-level `<session-id>.jsonl` transcripts
+are archived; memory, subagent artifacts and sessions started in subfolders
+are excluded. Claude transcripts record an absolute `cwd`: restoring to a PC
+where the project lives at a different path (or the transcript has no usable
+`cwd`) is explicitly skipped, not silently treated as a successful restore.
+Same-path restores are supported; cross-path remapping and confirmation that
+Claude displays resumed sessions on another PC remain to be implemented.
+Only processes named `claude` are currently detected; Claude launched through
+a differently named host such as `node` may not be detected, so close all
+Claude processes before using Claude discovery or sync. Do not rely on this
+integration yet for complete cross-PC Claude chat restore.
 
 ## Why
 
@@ -99,8 +117,9 @@ Full details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ```
 CodeChatSync.Core                      # config, provider registry, merge/conflict logic
-CodeChatSync.Providers.VisualStudio    # discover/map for Copilot chats in .vs
-CodeChatSync.Git                       # commit/push/pull on the private sync repo
+CodeChatSync.Providers.VisualStudio    # discover/map for Visual Studio Copilot chats
+CodeChatSync.Providers.Claude          # Claude Code transcript discovery and mapping
+CodeChatSync.Git
 CodeChatSync.Cli                       # lightweight CLI: add, sync, discover
 CodeChatSync.App                       # WinUI 3 app: tray, integrated watch, configuration
 ```
@@ -114,7 +133,7 @@ CodeChatSync.App                       # WinUI 3 app: tray, integrated watch, co
   synced across PCs, with explicit deployment into individual client repos
   (the only case where the tool writes inside a client repo, required by
   how Visual Studio reads prompt files)
-- Future providers for other AI tools (Claude Code, Copilot CLI)
+- Future providers for other AI tools (Copilot CLI)
 
 Full roadmap, with phase order, in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
@@ -138,8 +157,8 @@ assistant.
 
 **.NET 10** on every project (pinned via `global.json`), Windows for
 `CodeChatSync.App` (WinUI 3, latest stable Windows App SDK).
-`CodeChatSync.Core`, `CodeChatSync.Providers.VisualStudio`, and
-`CodeChatSync.Git` stay platform-agnostic libraries.
+`CodeChatSync.Core`, both provider projects, and `CodeChatSync.Git` stay
+platform-agnostic libraries.
 
 ## License
 

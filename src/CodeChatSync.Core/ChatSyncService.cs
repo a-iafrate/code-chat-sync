@@ -169,7 +169,7 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
 
         return localChanged
             ? Push(relativePath, localPath, syncPath, localHash, state, dryRun)
-            : Pull(relativePath, localPath, syncPath, syncHash, syncRootPath, state, runningProcesses, dryRun);
+            : Pull(provider, project, relativePath, localPath, syncPath, syncHash, syncRootPath, state, runningProcesses, dryRun);
     }
 
     private static SyncEntryResult Push(
@@ -207,6 +207,8 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
     }
 
     private SyncEntryResult Pull(
+        IChatProvider provider,
+        ProjectInfo project,
         string relativePath,
         string localPath,
         string syncPath,
@@ -237,6 +239,17 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
                 Action = SyncAction.Skipped,
                 Reason = $"Waiting for {string.Join(", ", runningProcesses)} to close before writing local chat data.",
                 IsBlockedByProvider = true
+            };
+        }
+
+        if (provider is IChatRestoreValidator validator
+            && validator.GetRestoreRefusal(project, syncPath) is { } refusal)
+        {
+            return new SyncEntryResult
+            {
+                RelativePath = relativePath,
+                Action = SyncAction.Skipped,
+                Reason = refusal
             };
         }
 

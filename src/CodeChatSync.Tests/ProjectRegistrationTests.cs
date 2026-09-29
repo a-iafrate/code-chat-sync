@@ -8,6 +8,8 @@ public sealed class ProjectRegistrationTests : IDisposable
 {
     private const string PrimaryRemote = "https://github.com/acme/primary.git";
     private const string OtherRemote = "https://github.com/acme/other.git";
+    private const string AzureDevOpsUsernameOnlyRemote =
+        "https://gruppostorti@dev.azure.com/gruppostorti/middleware/_git/middleware";
 
     private readonly TempDirectory _root = new();
     private readonly GitCommandRunner _git = new();
@@ -177,6 +179,51 @@ public sealed class ProjectRegistrationTests : IDisposable
             remoteOverride: "https://user:password@example.invalid/acme/project.git",
             configPath: ConfigPath));
 
+        AssertConfigUnchanged(localConfigFile, localBefore, sharedConfigFile, sharedBefore);
+    }
+
+    [Fact]
+    public void Add_AcceptsAzureDevOpsRemoteOverrideWithUsernameOnlyUserInfo()
+    {
+        var syncRoot = CreateDirectory("sync");
+        var projectPath = CreateDirectory("middleware");
+        SaveConfig(syncRoot);
+
+        var project = ProjectRegistration.Add(
+            projectPath,
+            name: "middleware",
+            remoteOverride: AzureDevOpsUsernameOnlyRemote,
+            configPath: ConfigPath);
+
+        Assert.Equal("dev.azure.com/gruppostorti/middleware/_git/middleware", project.Identity.NormalizedRemote);
+        Assert.Equal(Path.GetFullPath(projectPath), project.LocalPath);
+        var localEntry = Assert.Single(LocalConfig.Load(ConfigPath).Projects);
+        Assert.Equal("dev.azure.com/gruppostorti/middleware/_git/middleware", localEntry.Remote);
+        Assert.Equal(Path.GetFullPath(projectPath), localEntry.LocalPath);
+        var sharedEntry = Assert.Single(SharedConfig.Load(syncRoot).Projects);
+        Assert.Equal("dev.azure.com/gruppostorti/middleware/_git/middleware", sharedEntry.Remote);
+        Assert.Equal("middleware", sharedEntry.Name);
+        Assert.DoesNotContain("gruppostorti@", File.ReadAllText(ConfigPath), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("gruppostorti@", File.ReadAllText(SharedConfig.GetPath(syncRoot)), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("http://user:password@example.invalid/acme/project.git")]
+    [InlineData("https://gruppostorti:token@dev.azure.com/gruppostorti/middleware/_git/middleware")]
+    public void Add_RejectsUsernameAndPasswordRemoteOverrideWithoutChangingConfiguration(string invalidRemote)
+    {
+        var syncRoot = CreateDirectory("sync");
+        var projectPath = CreateDirectory("standalone");
+        var (localConfigFile, sharedConfigFile) = SaveConfig(syncRoot);
+        var localBefore = File.ReadAllBytes(localConfigFile);
+        var sharedBefore = File.ReadAllBytes(sharedConfigFile);
+
+        var exception = Assert.Throws<ArgumentException>(() => ProjectRegistration.Add(
+            projectPath,
+            remoteOverride: invalidRemote,
+            configPath: ConfigPath));
+
+        Assert.Contains("credentials", exception.Message, StringComparison.OrdinalIgnoreCase);
         AssertConfigUnchanged(localConfigFile, localBefore, sharedConfigFile, sharedBefore);
     }
 

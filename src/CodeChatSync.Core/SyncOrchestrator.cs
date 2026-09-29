@@ -41,8 +41,11 @@ public sealed record SyncRunOptions
     public string? ExactProjectRemote { get; init; }
 }
 
-/// <summary>Result of syncing one project.</summary>
-public sealed record ProjectSyncResult(ProjectInfo Project, SyncReport Report);
+/// <summary>Result of syncing one project with one provider.</summary>
+public sealed record ProjectSyncResult(
+    ProjectInfo Project,
+    SyncReport Report,
+    string ProviderId = LocalConfig.DefaultProviderId);
 
 /// <summary>Everything a caller needs to report a sync run.</summary>
 public sealed record SyncRunResult
@@ -81,15 +84,46 @@ public sealed class SyncConfigurationException(string message) : Exception(messa
 /// persistence, then publishing. Produces a report instead of writing anywhere, so
 /// the CLI and the tray app share exactly the same behaviour.
 /// </summary>
-public sealed class SyncOrchestrator(
-    IChatProvider provider,
-    SyncWorkspace workspace,
-    ChatSyncService syncService,
-    ISyncPublisher? publisher = null)
+public sealed class SyncOrchestrator
 {
-    private readonly IChatProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
-    private readonly SyncWorkspace _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
-    private readonly ChatSyncService _syncService = syncService ?? throw new ArgumentNullException(nameof(syncService));
+    private readonly IReadOnlyList<IChatProvider> _providers;
+    private readonly SyncWorkspace _workspace;
+    private readonly ChatSyncService _syncService;
+    private readonly ISyncPublisher? _publisher;
+    private bool _filterRegisteredProviders = true;
+
+    public SyncOrchestrator(
+        IChatProvider provider,
+        SyncWorkspace workspace,
+        ChatSyncService syncService,
+        ISyncPublisher? publisher = null)
+        : this([provider ?? throw new ArgumentNullException(nameof(provider))], workspace, syncService, publisher)
+    {
+        _filterRegisteredProviders = false;
+    }
+
+    public SyncOrchestrator(
+        IEnumerable<IChatProvider> providers,
+        SyncWorkspace workspace,
+        ChatSyncService syncService,
+        ISyncPublisher? publisher = null)
+    {
+        ArgumentNullException.ThrowIfNull(providers);
+        _providers = providers.ToArray();
+        if (_providers.Count == 0 || _providers.Any(provider => provider is null))
+        {
+            throw new ArgumentException("At least one chat provider is required.", nameof(providers));
+        }
+
+        if (_providers.Select(provider => provider.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != _providers.Count)
+        {
+            throw new ArgumentException("Provider IDs must be unique.", nameof(providers));
+        }
+
+        _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
+        _syncService = syncService ?? throw new ArgumentNullException(nameof(syncService));
+        _publisher = publisher;
+    }
 
     public SyncRunResult Run(SyncRunOptions? options = null)
     {
@@ -123,9 +157,9 @@ public sealed class SyncOrchestrator(
         }
 
         string? prepareMessage = null;
-        if (!runOptions.DryRun && publisher is not null)
+        if (!runOptions.DryRun && _publisher is not null)
         {
-            var prepared = publisher.PrepareForSync();
+            var prepared = _publisher.PrepareForSync();
             prepareMessage = prepared.Message;
 
             if (!prepared.CanContinue)
@@ -143,39 +177,51 @@ public sealed class SyncOrchestrator(
         var results = new List<ProjectSyncResult>();
         foreach (var project in projects)
         {
-            var statePath = _workspace.GetStatePath(_provider.Id, project);
-            var state = SyncState.Load(statePath);
-            Func<string, bool>? shouldRestore = null;
-            if (_workspace.GetRestoreSelection(_provider.Id, project) is { } selection)
+            var enabledProviders = new HashSet<string>(
+                _workspace.GetEnabledProviderIds(project),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var provider in _providers)
             {
-                if (_provider is not IChatSessionProvider sessionProvider)
+                if (_filterRegisteredProviders && !enabledProviders.Contains(provider.Id))
                 {
-                    throw new SyncConfigurationException($"Provider '{_provider.Id}' does not support session-level restore selection.");
+                    continue;
                 }
 
-                if (selection.SessionIds is null)
+                var statePath = _workspace.GetStatePath(provider.Id, project);
+                var state = SyncState.Load(statePath);
+                Func<string, bool>? shouldRestore = null;
+                if (_workspace.GetRestoreSelection(provider.Id, project) is { } selection)
                 {
-                    throw new SyncConfigurationException("The local restore selection is missing its session IDs.");
+                    if (provider is not IChatSessionProvider sessionProvider)
+                    {
+                        throw new SyncConfigurationException($"Provider '{provider.Id}' does not support session-level restore selection.");
+                    }
+
+                    if (selection.SessionIds is null)
+                    {
+                        throw new SyncConfigurationException("The local restore selection is missing its session IDs.");
+                    }
+
+                    var selectedIds = new HashSet<string>(selection.SessionIds, StringComparer.OrdinalIgnoreCase);
+                    shouldRestore = path => selectedIds.Contains(sessionProvider.GetSessionId(path));
                 }
 
-                var selectedIds = new HashSet<string>(selection.SessionIds, StringComparer.OrdinalIgnoreCase);
-                shouldRestore = path => selectedIds.Contains(sessionProvider.GetSessionId(path));
+                var report = _syncService.Sync(provider, project, syncRoot, state, runOptions.DryRun, shouldRestore);
+
+                if (!runOptions.DryRun)
+                {
+                    state.Save(statePath);
+                }
+
+                results.Add(new ProjectSyncResult(project, report, provider.Id));
             }
-
-            var report = _syncService.Sync(_provider, project, syncRoot, state, runOptions.DryRun, shouldRestore);
-
-            if (!runOptions.DryRun)
-            {
-                state.Save(statePath);
-            }
-
-            results.Add(new ProjectSyncResult(project, report));
         }
 
         string? publishMessage = null;
-        if (!runOptions.DryRun && publisher is not null)
+        if (!runOptions.DryRun && _publisher is not null)
         {
-            publishMessage = publisher.PublishChanges(results.Sum(result => result.Report.PushedCount)).Message;
+            publishMessage = _publisher.PublishChanges(results.Sum(result => result.Report.PushedCount)).Message;
         }
 
         return new SyncRunResult

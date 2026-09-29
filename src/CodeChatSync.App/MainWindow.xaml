@@ -61,7 +61,7 @@
                     <TextBlock Text="Projects on this PC" FontSize="20" />
                     <Button Content="Refresh" Click="OnRefreshProjectsClick" />
                 </StackPanel>
-                <TextBlock Text="Projects are identified by their Git remote. Currently supported: Visual Studio (Copilot)."
+                <TextBlock Text="Projects are identified by their Git remote. The same project can include both Visual Studio (Copilot) and Claude Code."
                            TextWrapping="Wrap" />
                 <InfoBar x:Name="ProjectInfoBar" IsOpen="False" IsClosable="True" />
                 <StackPanel x:Name="ProjectsPanel" Spacing="8" />
@@ -80,10 +80,20 @@
                         <Button x:Name="AddProjectButton" Content="Add project" Click="OnAddProjectClick" HorizontalAlignment="Left" />
                     </StackPanel>
                 </Expander>
+                <Expander Header="Add a Claude Code project" IsExpanded="False">
+                    <StackPanel Spacing="8" Padding="8">
+                        <TextBlock Text="Discover sessions under your Claude Code projects folder. Only existing Git repositories with a verified remote can be registered; the same remote can also have Copilot chats. Close Claude Code completely (including any node-hosted instances) before discovering or syncing."
+                                   TextWrapping="Wrap" />
+                        <Button x:Name="DiscoverClaudeButton" Content="Find Claude Code projects" Click="OnDiscoverClaudeClick" HorizontalAlignment="Left" />
+                        <StackPanel x:Name="ClaudeCandidatePanel" Spacing="8" />
+                    </StackPanel>
+                </Expander>
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
                 <TextBlock Text="Chats to restore on this PC" FontSize="20" />
-                <TextBlock Text="Visual Studio (Copilot) · Uncheck Restore on this PC beside a project, then save, to exclude all its archived chats from restores here. Expand it to select individual chats instead. The Git clone, uploads, and existing local chats are unaffected."
+                <TextBlock Text="Choose restores separately for each provider and project. Uncheck Restore on this PC and save to exclude its archived chats from restores here. The Git clone, uploads, and existing local chats are unaffected."
                            TextWrapping="Wrap" />
+                <TextBlock Text="Claude Code restores currently require the same project path on both PCs. Chats with another or missing cwd are skipped; cross-path remapping and resumed-session visibility are not yet verified."
+                           TextWrapping="Wrap" Opacity="0.8" />
                 <StackPanel x:Name="SessionSelectionPanel" Spacing="12" />
                 <Button x:Name="SaveSelectionButton" Content="Save chat selection" Click="OnSaveSelectionClick" />
                 <InfoBar x:Name="SelectionInfoBar" IsOpen="False" IsClosable="True" />
