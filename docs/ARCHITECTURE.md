@@ -1,219 +1,223 @@
-# Architettura — CodeChatSync
+# Architecture — CodeChatSync
 
-## Obiettivo
+## Goal
 
-Sincronizzare le chat AI (Copilot, e in futuro altri tool) tra i PC dell'utente,
-tenendole **fuori dai repo dei clienti**. Nessun dato del cliente deve finire
-nel repo di sync; nessun file del tool di sync deve finire nei repo cliente.
+Sync AI chats (Copilot, other tools later) across the user's PCs, keeping
+them **out of client repos**. No client data should ever end up in the sync
+repo; no sync-tool file should ever end up in a client repo.
 
-## Principi di design
+## Design principles
 
-- **Niente symlink.** Il tool copia i file, punto. Push da locale a cartella di
-  sync, pull da cartella di sync a locale. Niente collegamenti tra repo cliente
-  e repo di sync.
-- **Identificazione per remote Git, non per percorso.** Lo stesso progetto può
-  vivere in `C:\Dev\...` su un PC e `D:\Clienti\...` su un altro: viene
-  riconosciuto tramite il remote Git normalizzato, non il path su disco.
-- **Provider a plugin.** Il Core non sa nulla di uno strumento specifico.
-  Ogni tool (Visual Studio, in futuro Claude Code, Copilot CLI, VS Code) è un
-  provider che implementa `IChatProvider`: dice dove sono le chat in locale,
-  come mappare un percorso relativo di nuovo in locale su un altro PC, e quali
-  processi indicano che il tool è "in uso" (per il lock in scrittura e per il
-  trigger di `watch`).
-- **Sync solo a tool chiuso.** Non si scrive mai mentre il processo del
-  provider (es. `devenv.exe`) è in esecuzione, per non leggere/scrivere file
-  in uso o corrotti.
-- **Backup prima di sovrascrivere.** Ogni restore locale fa un backup del file
-  esistente prima di sostituirlo.
-- **Storage: repo Git privato dell'utente.** Nessun servizio di terze parti,
-  nessun cloud gestito da noi. Il tool fa solo commit/push/pull su un repo che
-  l'utente possiede.
+- **No symlinks.** The tool copies files, period. Push from local to the
+  sync folder, pull from the sync folder to local. No links between a
+  client repo and the sync repo.
+- **Identification by Git remote, not by path.** The same project can live
+  at `C:\Dev\...` on one PC and `D:\Clients\...` on another: it's recognized
+  by its normalized Git remote, not by its disk path.
+- **Plugin-based providers.** The Core knows nothing about a specific tool.
+  Each tool (Visual Studio, later Claude Code, Copilot CLI, VS Code) is a
+  provider implementing `IChatProvider`: it says where chats live locally,
+  how to map a relative path back to a local path on another PC, and which
+  processes indicate the tool is "in use" (for the write lock and for the
+  `watch` trigger).
+- **Sync only while the tool is closed.** Never write while the provider's
+  process (e.g. `devenv.exe`) is running, to avoid reading/writing files
+  that are in use or getting corrupted.
+- **Backup before overwrite.** Every local restore backs up the existing
+  file before replacing it.
+- **Storage: the user's own private Git repo.** No third-party service, no
+  cloud managed by us. The tool only does commit/push/pull on a repo the
+  user owns.
 
-## Stack tecnologico
+## Technology stack
 
-- **.NET 10** su tutti i progetti della solution (`<TargetFramework>net10.0</TargetFramework>`,
-  `net10.0-windows` per `CodeChatSync.App`). Fissato anche via `global.json`
-  alla radice, per evitare che un PC con un SDK diverso installato usi una
-  versione non allineata.
-- **C# più recente supportato da .NET 10**, `Nullable` e `ImplicitUsings`
-  abilitati su tutti i progetti.
-- **WinUI 3 sull'ultima versione stabile del Windows App SDK** al momento
-  dell'implementazione (non pinnare a una versione vecchia "perché
-  funziona"): verificare la versione corrente prima di aggiungere il
-  pacchetto.
-- Ogni dipendenza NuGet (`System.CommandLine`, `H.NotifyIcon.WinUI`, il
-  pacchetto Git scelto, ecc.) va presa **nell'ultima versione stabile
-  disponibile** al momento in cui viene aggiunta, non da esempi o tutorial
-  che potrebbero referenziare versioni precedenti.
+- **.NET 10** on every project in the solution
+  (`<TargetFramework>net10.0</TargetFramework>`, `net10.0-windows` for
+  `CodeChatSync.App`). Also pinned via a root `global.json`, so a PC with a
+  different SDK installed doesn't drift to a misaligned version.
+- **The latest C# version supported by .NET 10**, with `Nullable` and
+  `ImplicitUsings` enabled on every project.
+- **WinUI 3 on the latest stable Windows App SDK release** at the time of
+  implementation (don't pin to an old version "because it works"): check
+  the current version before adding the package.
+- Every NuGet dependency (`System.CommandLine`, `H.NotifyIcon.WinUI`, the
+  chosen Git package, etc.) must be taken at the **latest stable version
+  available** at the time it's added, not copied from examples or
+  tutorials that might reference older versions.
+- **All documentation, code, identifiers (classes, methods, variables), and
+  comments must be in English**, regardless of the language used when
+  talking to an AI assistant about the project.
 
-## Struttura della solution
+## Solution structure
 
 ```
-CodeChatSync.Core                      # config, provider registry, mapping remote→progetto,
-                                        # confronto date, logica di merge/conflitti
-CodeChatSync.Providers.VisualStudio    # discover/map per le chat Copilot in .vs
-CodeChatSync.Git                       # commit/push/pull sul repo privato di sync
-CodeChatSync.Cli                       # CLI leggera per uso da terminale/scripting:
-                                        # add, sync, discover — convive con CodeChatSync.App,
-                                        # non lo sostituisce
-CodeChatSync.App                       # app WinUI 3: tray icon, finestra di configurazione,
-                                        # e watch integrato nello stesso processo
-                                        # (Windows-only, niente più Blazor/Kestrel)
+CodeChatSync.Core                      # config, provider registry, remote→project mapping,
+                                        # date comparison, merge/conflict logic
+CodeChatSync.Providers.VisualStudio    # discover/map for Copilot chats in .vs
+CodeChatSync.Git                       # commit/push/pull on the private sync repo
+CodeChatSync.Cli                       # lightweight CLI for terminal/scripting use:
+                                        # add, sync, discover — coexists with
+                                        # CodeChatSync.App, doesn't replace it
+CodeChatSync.App                       # WinUI 3 app: tray icon, configuration window,
+                                        # watch integrated in the same process
+                                        # (Windows-only, no more Blazor/Kestrel)
 ```
 
-Nota: `Core`, `Providers.VisualStudio` e `Git` restano librerie .NET
-platform-agnostic. Solo `App` è legata a Windows (WinUI 3); se in futuro
-servirà uso da terminale su Linux (es. per un provider Claude Code), resta
-disponibile `Cli` senza GUI.
+Note: `Core`, `Providers.VisualStudio`, and `Git` stay platform-agnostic
+.NET libraries. Only `App` is tied to Windows (WinUI 3); if terminal use on
+Linux is ever needed (e.g. for a future Claude Code provider), `Cli` remains
+available without a GUI.
 
-## Contratto provider
+## Provider contract
 
 ```csharp
 public interface IChatProvider
 {
     string Id { get; }                         // "visualstudio", "claudecode", ...
-    IReadOnlyList<string> ProcessNames { get; } // per watch e per il lock: "devenv"
-    IEnumerable<ChatLocation> Discover(ProjectInfo project); // dove sono le chat in locale
-    string MapToLocal(ProjectInfo project, string relativePath); // per il restore
+    IReadOnlyList<string> ProcessNames { get; } // for watch and for the lock: "devenv"
+    IEnumerable<ChatLocation> Discover(ProjectInfo project); // where chats live locally
+    string MapToLocal(ProjectInfo project, string relativePath); // for restore
 }
 ```
 
-`ProjectInfo` contiene l'identità del progetto (remote Git normalizzato) più
-il percorso locale corrente. Il Core si occupa di copia, confronto delle
-date, backup e commit/push/pull. Il provider si limita a dire dove guardare.
+`ProjectInfo` holds the project's identity (normalized Git remote) plus its
+current local path. The Core handles copying, date comparison, backup, and
+commit/push/pull. The provider only has to say where to look.
 
-## Layout della cartella di sync
+## Sync folder layout
 
 ```
 .codechatsync/
-  <provider>/<progetto-da-remote>/...   # es. visualstudio/clienteA-gestionale/
+  <provider>/<project-from-remote>/...   # e.g. visualstudio/clientA-erp/
 ```
 
 ## Config
 
-- Config condivisa (nel repo di sync, versionata): mapping `remote Git → nome
-  progetto/cliente`.
-- Config locale per PC (non versionata): percorso locale di ogni progetto
-  registrato su quella macchina.
+- Shared config (in the sync repo, versioned): `Git remote → project/client
+  name` mapping.
+- Per-PC local config (not versioned): the local path of each project
+  registered on that machine.
 
-## Provider pianificati (dopo Visual Studio)
+## Planned providers (after Visual Studio)
 
-- **Claude Code** — sessioni in `~/.claude/projects/`, cartelle codificano il
-  percorso assoluto: il provider deve rinominarle sul PC di destinazione.
-- **Copilot CLI** — dati in `~/.copilot`, per sessione.
-- **VS Code** — chat indicizzate per hash del workspace; con la sync nativa
-  di VS Code su GitHub probabilmente non serve un provider dedicato.
+- **Claude Code** — sessions under `~/.claude/projects/`, folders encode the
+  absolute path: the provider must rename them on the destination PC.
+- **Copilot CLI** — data under `~/.copilot`, per session.
+- **VS Code** — chats indexed by workspace hash; with VS Code's native
+  GitHub-based sync, a dedicated provider is probably unnecessary.
 
-Le chat di claude.ai restano fuori: sono già legate all'account utente.
+claude.ai chats stay out of scope: they're already tied to the user's
+account.
 
-## UI di configurazione
+## Configuration UI
 
-App **WinUI 3** (`CodeChatSync.App`), Windows-only: icona in tray (tramite
-`H.NotifyIcon.WinUI`, non c'è un'API nativa WinUI per il tray) più finestra
-di configurazione aperta dal tray. L'app resta in esecuzione in background e
-integra anche il watch nello stesso processo: non c'è più un comando
-`watch` separato da lanciare o pianificare.
+A **WinUI 3** app (`CodeChatSync.App`), Windows-only: a tray icon (via
+`H.NotifyIcon.WinUI`, since WinUI has no native tray API) plus a
+configuration window opened from the tray. The app stays running in the
+background and also integrates the watch logic in the same process: there's
+no longer a separate `watch` command to launch or schedule.
 
-Scelta al posto di Blazor Server: si perde il cross-platform (Linux/macOS),
-ma si guadagna un unico processo per tray + watch + configurazione, avvio
-automatico gestito nativamente da Windows, e un packaging MSIX più naturale
-se in futuro si vorrà distribuire su Microsoft Store (WinUI 3 + MSIX è la
-combinazione prevista da Microsoft, a differenza di Blazor+Kestrel).
+Chosen over Blazor Server: cross-platform support (Linux/macOS) is lost,
+but in exchange we get a single process for tray + watch + configuration,
+auto-start handled natively by Windows, and a more natural MSIX packaging
+path if the app is ever distributed via the Microsoft Store (WinUI 3 + MSIX
+is Microsoft's intended combination, unlike Blazor+Kestrel).
 
-Funzionalità minime della finestra di configurazione:
+Minimum functionality of the configuration window:
 
-- Remote Git del repo di sync + cartella locale
-- Elenco progetti registrati (aggiungi/rimuovi), con remote rilevato,
-  percorso locale, ultimo sync
-- Sync ora (globale e per singolo progetto)
-- Toggle per il sync automatico alla chiusura di Visual Studio
-- Elenco conflitti (stesso file cambiato su due PC) con scelta
-  "tieni locale / tieni remoto"
-- Log delle ultime sincronizzazioni
+- Sync repo's Git remote + local folder
+- List of registered projects (add/remove), with detected remote, local
+  path, last sync time
+- Sync now (globally and per project)
+- Toggle for automatic sync on Visual Studio close
+- Conflict list (same file changed on two PCs) with a "keep local / keep
+  remote" choice
+- Log of recent syncs
 
-`CodeChatSync.Cli` resta come strumento leggero separato per chi preferisce
-lanciare `add`/`sync`/`discover` da terminale o da script, senza passare
-dalla UI. Non gestisce il watch: quello vive solo nell'app WinUI.
+`CodeChatSync.Cli` remains as a separate lightweight tool for anyone who
+prefers running `add`/`sync`/`discover` from a terminal or a script,
+without going through the UI. It doesn't handle the watch — that only lives
+in the WinUI app.
 
 ## Chat Library
 
-Come la Prompt Library, ma per le chat già sincronizzate dal tool — non
-richiede un'azione di "distribuzione", perché le chat vivono già in
-`.codechatsync/<provider>/<progetto>/...` e nel percorso locale mappato dal
-provider (`MapToLocal`).
+Like the Prompt Library, but for chats already synced by the tool — no
+"deploy" action is needed, since chats already live in
+`.codechatsync/<provider>/<project>/...` and at the local path mapped by
+the provider (`MapToLocal`).
 
-Funzionalità:
+Functionality:
 
-- Elenco delle chat sincronizzate, per progetto
-- Visualizzazione del contenuto (**best-effort**: il formato con cui Visual
-  Studio salva le chat in `.vs` non è documentato — vedi Fase 0, `discover`
-  — quindi la profondità di parsing possibile dipende da cosa emerge lì)
-- Modifica del titolo della chat, cioè il nome mostrato nel pannello Chat
-  History di Visual Studio, se il formato espone un campo identificabile
-  come tale
-- Eliminazione di una chat sincronizzata
-- Stesse regole di scrittura delle altre funzionalità: mai con `devenv.exe`
-  in esecuzione, backup prima di sovrascrivere
+- List of synced chats, per project
+- Content view (**best-effort**: the format Visual Studio uses to store
+  chats in `.vs` isn't documented — see Phase 0, `discover` — so how deep
+  the parsing can go depends on what's found there)
+- Editing the chat's title, i.e. the name shown in Visual Studio's Chat
+  History panel, if the format exposes an identifiable field for it
+- Deleting a synced chat
+- Same write rules as every other feature: never while `devenv.exe` is
+  running, backup before overwrite
 
 ## Prompt Library
 
-Funzionalità per vedere/modificare i prompt file di Copilot (`.prompt.md`) e
-il loro nome visualizzato nell'editor (campo front-matter `name`, distinto
-dal nome del file: se assente, Copilot usa il nome del file dopo `/`).
+Functionality to view/edit Copilot prompt files (`.prompt.md`) and their
+display name in the editor (the `name` front-matter field, distinct from
+the file name: if absent, Copilot uses the file name after `/`).
 
-**Vincolo tecnico che guida il design:** sia Visual Studio che VS Code
-leggono i prompt file solo da `.github/prompts` **dentro il repo aperto**.
-VS Code supporta anche uno scope "utente" globale fuori dai repo; Visual
-Studio normale, allo stato attuale, no. Quindi un prompt personale, per
-funzionare in un progetto cliente aperto in VS, deve fisicamente stare
-dentro `.github/prompts` di quel repo — al contrario di tutto il resto del
-tool, che tiene i materiali dell'utente fuori dai repo cliente.
+**The technical constraint driving this design:** both Visual Studio and VS
+Code only read prompt files from `.github/prompts` **inside the open
+repo**. VS Code also supports a global "user" scope outside any repo;
+regular Visual Studio currently does not. So a personal prompt, to work in
+a client project opened in VS, has to physically live inside that repo's
+`.github/prompts` — the opposite of everything else in the tool, which
+keeps the user's own material out of client repos.
 
 Design:
 
-- **Libreria personale**, sincronizzata tra i PC come le chat:
-  `.codechatsync/prompts/<slug>.prompt.md` nel repo di sync. UI nell'app:
-  elenco, editor di contenuto, editor del campo `name`.
-- **"Distribuisci nel progetto"**: azione esplicita ed esclusivamente
-  manuale (mai automatica) che copia i prompt scelti in `.github/prompts/`
-  del repo cliente selezionato. È l'unico punto del tool in cui si scrive
-  deliberatamente dentro un repo cliente, per il vincolo tecnico sopra.
-- Per default, dopo la distribuzione il percorso del prompt viene aggiunto a
-  `.git/info/exclude` del repo cliente, così resta utilizzabile in VS ma non
-  compare nel git status/commit di quel repo. Condividerlo con il team del
-  cliente resta possibile ma è una scelta esplicita dell'utente, non il
-  comportamento di default.
+- **Personal library**, synced across PCs like chats:
+  `.codechatsync/prompts/<slug>.prompt.md` in the sync repo. App UI: list,
+  content editor, `name` field editor.
+- **"Deploy to project"**: an explicit, strictly manual action (never
+  automatic) that copies the chosen prompts into `.github/prompts/` of the
+  selected client repo. This is the only place in the tool where it
+  deliberately writes inside a client repo, due to the technical constraint
+  above.
+- By default, after deployment the prompt's path is added to
+  `.git/info/exclude` of the client repo, so it stays usable in VS but
+  doesn't show up in that repo's git status/commits. Sharing it with the
+  client's team is still possible, but it's an explicit user choice, not
+  the default behavior.
 
-## Come rileva la chiusura di Visual Studio
+## How it detects Visual Studio closing
 
-L'app WinUI si sottoscrive agli eventi WMI di terminazione processo filtrati
-su `devenv.exe`. Alla chiusura dell'ultima istanza, attende qualche secondo
-per il rilascio dei file, poi lancia il sync.
+The WinUI app subscribes to WMI process-termination events filtered on
+`devenv.exe`. When the last instance closes, it waits a few seconds for
+files to be released, then triggers a sync.
 
-## Avvio automatico
+## Auto-start
 
-Gestito con la *StartupTask extension* di Windows/MSIX invece che con una
-Scheduled Task creata manualmente. Vantaggio pratico: viene rimossa in modo
-pulito dal sistema alla disinstallazione dell'app, cosa che una Scheduled
-Task creata a mano non garantisce.
+Handled via the Windows/MSIX **StartupTask extension** instead of a
+manually created Scheduled Task. Practical benefit: it's cleanly removed by
+the system when the app is uninstalled, which a manually created Scheduled
+Task doesn't guarantee.
 
-## Distribuzione (valutata, non ancora decisa/implementata)
+## Distribution (evaluated, not yet decided/implemented)
 
-- **Microsoft Store (MSIX):** fattibile con WinUI 3 senza stravolgere
-  l'architettura. Nodo aperto: `broadFileSystemAccess` da giustificare in
-  certificazione, perché le solution possono stare ovunque su disco.
-- **Winget/Scoop/Chocolatey:** per un tool "solo tra i miei PC" senza
-  pubblicazione, **Scoop** è l'opzione con meno attrito — basta un bucket
-  privato (repo Git con manifest JSON), nessuna revisione, nessun server.
-- In tutti i casi, nessun canale disinstalla da solo elementi creati fuori
-  dalla cartella dell'app: con l'avvio via StartupTask MSIX questo non è più
-  un problema (vedi sopra); se in futuro si torna a una Scheduled Task
-  manuale, va previsto un comando esplicito di pulizia.
+- **Microsoft Store (MSIX):** feasible with WinUI 3 without overhauling the
+  architecture. Open item: `broadFileSystemAccess` needs to be justified
+  during certification, since solutions can live anywhere on disk.
+- **Winget/Scoop/Chocolatey:** for a "just across my own PCs" tool with no
+  publishing, **Scoop** is the lowest-friction option — just a private
+  bucket (a Git repo with JSON manifests), no review, no server.
+- In every case, no package channel uninstalls things the app created
+  outside its own folder on its own: with auto-start via the MSIX
+  StartupTask this is no longer an issue (see above); if a manual Scheduled
+  Task is ever reintroduced, an explicit cleanup command should be added.
 
-## Riferimento di progetti simili (non usati come dipendenza, solo ispirazione)
+## Reference to similar projects (not used as a dependency, inspiration only)
 
-- [AI Chat Sync](https://github.com/fxwl/AI-Chat-Sync) — stesso concetto
-  (sync chat AI tra PC via repo Git privato dell'utente), ambito Codex/Windows,
-  Electron+React. Utile come riferimento per il modello di sicurezza
-  (repo di sync separato da quello sorgente, mapping progetti, gestione
-  conflitti senza sovrascritture silenziose).
+- [AI Chat Sync](https://github.com/fxwl/AI-Chat-Sync) — same concept
+  (syncing AI chats across PCs via the user's own private Git repo), scoped
+  to Codex/Windows, Electron+React. Useful as a reference for the security
+  model (sync repo kept separate from source repos, project mapping,
+  conflict handling without silent overwrites).

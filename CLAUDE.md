@@ -1,65 +1,69 @@
-# CodeChatSync — istruzioni per Claude
+# CodeChatSync — instructions for Claude
 
-Tool CLI .NET per sincronizzare le chat AI (inizialmente Copilot in Visual
-Studio, in futuro altri tool) tra i PC dell'utente, tenendole fuori dai repo
-Git dei clienti. Il proprietario lavora su progetti di clienti in repo
-separati, su più PC.
+.NET CLI/desktop tool to sync AI chats (initially Copilot in Visual Studio,
+other tools later) across the user's PCs, keeping them out of client Git
+repos. The owner works on client projects in separate repos, across
+multiple PCs.
 
-## Prima di lavorare sul codice
+## Before working on the code
 
-Leggi sempre:
+Always read:
 
-- `docs/ARCHITECTURE.md` — design, struttura della solution, contratto dei
-  provider, layout della cartella di sync
-- `docs/ROADMAP.md` — stato attuale, fase in corso, decisioni già prese
+- `docs/ARCHITECTURE.md` — design, solution structure, provider contract,
+  sync folder layout
+- `docs/ROADMAP.md` — current status, phase in progress, decisions already
+  made
 
-Non riproporre alternative già scartate in `docs/ROADMAP.md` (es. symlink,
-identificazione per percorso locale, Blazor/MAUI/Photino per la UI) senza
-che l'utente lo chieda esplicitamente: sono decisioni già discusse e chiuse.
+Don't re-propose alternatives already discarded in `docs/ROADMAP.md` (e.g.
+symlinks, local-path project identification, Blazor/MAUI/Photino for the
+UI) unless the user explicitly asks: these are closed decisions.
 
-## Vincoli non negoziabili
+## Non-negotiable constraints
 
-- **Target .NET 10 su tutti i progetti.** Non proporre .NET 8/9, .NET
-  Standard o .NET Framework, nemmeno come esempio "per compatibilità": il
-  `global.json` alla radice fissa l'SDK a .NET 10 e va rispettato.
-- **Ultima versione stabile per ogni dipendenza** (WinUI 3/Windows App SDK,
-  `System.CommandLine`, pacchetto Git, ecc.) al momento in cui viene
-  aggiunta. Se un esempio o uno snippet di riferimento usa una versione più
-  vecchia, verifica prima l'ultima disponibile invece di copiarla.
-- **Niente symlink.** Solo copia di file tra locale e cartella di sync.
-- **Niente dato del cliente nel repo di sync, niente file del tool nei repo
-  cliente.** Qualunque funzionalità che rischi di mescolare i due va segnalata
-  prima di essere implementata.
-- **Scrittura solo a tool chiuso** (es. mai mentre `devenv.exe` è in
-  esecuzione). Backup prima di ogni sovrascrittura locale.
-- **Identificazione progetto per remote Git**, mai per percorso assoluto su
-  disco.
-- Il formato con cui Visual Studio salva le chat in `.vs` **non è
-  documentato**: trattalo come best-effort, isola questa logica nel provider
-  `CodeChatSync.Providers.VisualStudio`, e non assumere stabilità tra versioni
-  di VS.
+- **Target .NET 10 on every project.** Don't propose .NET 8/9, .NET
+  Standard, or .NET Framework, not even as a "compatibility" example: the
+  root `global.json` pins the SDK to .NET 10 and must be respected.
+- **Latest stable version for every dependency** (WinUI 3/Windows App SDK,
+  `System.CommandLine`, the Git package, etc.) at the time it's added. If a
+  reference example or snippet uses an older version, check the latest
+  available instead of copying it.
+- **All documentation, code, identifiers (classes, methods, variables), and
+  comments must be in English**, regardless of the language used in chat
+  with the assistant.
+- **No symlinks.** Only file copies between local and the sync folder.
+- **No client data in the sync repo, no tool files in client repos.** Any
+  feature that risks mixing the two must be flagged before being
+  implemented.
+- **Write only while the tool is closed** (e.g. never while `devenv.exe` is
+  running). Back up before every local overwrite.
+- **Identify a project by its Git remote**, never by absolute local path.
+- The format Visual Studio uses to store chats in `.vs` is
+  **undocumented**: treat it as best-effort, isolate this logic in the
+  `CodeChatSync.Providers.VisualStudio` provider, and don't assume it stays
+  stable across VS versions.
 
-## Stile di lavoro con l'utente
+## Working style with the user
 
-- L'utente è .NET/Azure, MVP Microsoft, lavora prevalentemente in italiano.
-  Rispondi in italiano.
-- Preferisce iterazioni brevi e mirate: proponi un passo concreto alla volta
-  (vedi la fase corrente in `docs/ROADMAP.md`), non tutto il progetto in un
-  colpo solo.
-- Prima di introdurre una nuova dipendenza NuGet, chiedi conferma se non è
-  ovvia dal contesto già discusso.
+- The user is a .NET/Azure developer and Microsoft MVP, usually writing to
+  the assistant in Italian. **Reply to the user in Italian** — this applies
+  to conversation only, not to anything written into the project itself
+  (code, comments, docs), which stays in English per the rule above.
+- Prefers short, targeted iterations: propose one concrete step at a time
+  (see the current phase in `docs/ROADMAP.md`), not the whole project at
+  once.
+- Before introducing a new NuGet dependency, ask for confirmation if it
+  isn't obvious from what's already been discussed.
 
 ## Solution
 
 ```
-CodeChatSync.Core                      # config, provider registry, merge/conflitti
-CodeChatSync.Providers.VisualStudio    # discover/map per le chat Copilot in .vs
-CodeChatSync.Git                       # commit/push/pull sul repo privato di sync
-CodeChatSync.Cli                       # CLI leggera: add, sync, discover
-CodeChatSync.App                       # app WinUI 3: tray, watch integrato, configurazione
+CodeChatSync.Core                      # config, provider registry, merge/conflict logic
+CodeChatSync.Providers.VisualStudio    # discover/map for Copilot chats in .vs
+CodeChatSync.Git                       # commit/push/pull on the private sync repo
+CodeChatSync.Cli                       # lightweight CLI: add, sync, discover
+CodeChatSync.App                       # WinUI 3 app: tray, integrated watch, configuration
                                         # (Windows-only)
 ```
 
-`Core`, `Providers.VisualStudio` e `Git` restano platform-agnostic; solo
-`App` è legata a Windows/WinUI 3. Dettagli completi in
-`docs/ARCHITECTURE.md`.
+`Core`, `Providers.VisualStudio`, and `Git` stay platform-agnostic; only
+`App` is tied to Windows/WinUI 3. Full details in `docs/ARCHITECTURE.md`.

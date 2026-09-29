@@ -1,36 +1,36 @@
-# Istruzioni repo per Copilot — CodeChatSync
+# Repo instructions for Copilot — CodeChatSync
 
-Tool CLI .NET per sincronizzare le chat AI (inizialmente Copilot in Visual
-Studio, in futuro altri tool) tra i PC dell'utente, tenendole fuori dai repo
-Git dei clienti.
+.NET tool to sync AI chats (initially Copilot in Visual Studio, other tools
+later) across the user's PCs, keeping them out of client Git repos.
 
-## Documenti di riferimento (leggerli prima di suggerire modifiche strutturali)
+## Reference documents (read before suggesting structural changes)
 
-- `docs/ARCHITECTURE.md` — design, struttura della solution, contratto
-  `IChatProvider`, layout della cartella di sync
-- `docs/ROADMAP.md` — fase corrente e decisioni già prese
+- `docs/ARCHITECTURE.md` — design, solution structure, `IChatProvider`
+  contract, sync folder layout
+- `docs/ROADMAP.md` — current phase and decisions already made
 
-## Regole per i suggerimenti di codice
+## Code suggestion rules
 
-- **Target .NET 10 su tutti i progetti** (`global.json` alla radice). Non
-  suggerire .NET 8/9, .NET Standard o .NET Framework.
-- **Ultima versione stabile per ogni pacchetto NuGet** al momento
-  dell'aggiunta (WinUI 3/Windows App SDK incluso), non versioni datate
-  copiate da esempi.
-- **Niente symlink.** Ogni funzionalità di sync copia file, non li collega.
-- **Identificazione progetto per remote Git**, mai per percorso assoluto.
-- **Scrittura locale solo a tool chiuso** (verificare che il processo del
-  provider, es. `devenv`, non sia in esecuzione) e **sempre con backup del
-  file precedente**.
-- Il codice che legge/scrive la cartella `.vs` di Visual Studio va isolato in
-  `CodeChatSync.Providers.VisualStudio`: il formato non è documentato da
-  Microsoft, trattalo come fragile e non propagare assunzioni su di esso nel
+- **Target .NET 10 on every project** (`global.json` at the root). Don't
+  suggest .NET 8/9, .NET Standard, or .NET Framework.
+- **Latest stable version for every NuGet package** at the time it's added
+  (including WinUI 3/Windows App SDK), not dated versions copied from
+  examples.
+- **All code, identifiers (classes, methods, variables), and comments must
+  be in English.**
+- **No symlinks.** Every sync feature copies files, it never links them.
+- **Identify a project by its Git remote**, never by absolute path.
+- **Write to local files only while the tool is closed** (check that the
+  provider's process, e.g. `devenv`, isn't running), and **always back up
+  the previous file first**.
+- Code that reads/writes Visual Studio's `.vs` folder must be isolated in
+  `CodeChatSync.Providers.VisualStudio`: the format isn't documented by
+  Microsoft, treat it as fragile, and don't leak assumptions about it into
   `Core`.
-- Non introdurre un servizio cloud o un backend gestito da terzi per lo
-  storage: il tool sincronizza solo su un repo Git privato di proprietà
-  dell'utente.
-- Namespace e progetti seguono `CodeChatSync.<Area>` (`Core`, `Providers.*`,
-  `Git`, `Cli`, `Web`).
+- Don't introduce a cloud service or a third-party managed backend for
+  storage: the tool only syncs to a private Git repo owned by the user.
+- Namespaces and projects follow `CodeChatSync.<Area>` (`Core`,
+  `Providers.*`, `Git`, `Cli`, `App`).
 
 ## Solution
 
@@ -38,12 +38,13 @@ Git dei clienti.
 CodeChatSync.Core
 CodeChatSync.Providers.VisualStudio
 CodeChatSync.Git
-CodeChatSync.Cli    # CLI leggera per terminale/scripting: add, sync, discover
-CodeChatSync.App    # app WinUI 3: tray, watch integrato, finestra di configurazione
-                     # (Windows-only; Blazor/MAUI/Photino scartati)
+CodeChatSync.Cli    # lightweight CLI for terminal/scripting use: add, sync, discover
+CodeChatSync.App    # WinUI 3 app: tray, integrated watch, configuration window
+                     # (Windows-only; Blazor/MAUI/Photino discarded)
 ```
 
-## Linguaggio
+## Language
 
-Commenti, messaggi di commit suggeriti e testo nei prompt Copilot: italiano,
-coerente con il resto del repo.
+Code, identifiers, comments, suggested commit messages, and any text shown
+to the user in Copilot prompts: **English**, for consistency across the
+whole repo.
