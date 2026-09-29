@@ -247,10 +247,18 @@ helper remains responsible for authentication.
 The window also lists sessions found in the cloned sync repository for each
 registered project. The user may restore every chat (including future ones)
 or opt in to individual sessions on this PC. A provider interprets its own
-session IDs; the Core only decides whether a pull is permitted. This choice
-does not prune the Git clone or touch local provider-owned chats already
-Disabling a session therefore does not remove a previous restore;
-it only prevents subsequent copies into the provider's folder.
+session IDs; the Core only decides whether a pull is permitted. Projects are
+collapsed by default in the configuration window; with "restore all" enabled,
+individual sessions stay hidden. A custom selection shows a searchable list
+with compact titles, update dates, and short session IDs; searching does not
+change the selection. A checkbox outside each collapsed project disables all
+restores for that project on this PC by persisting an empty per-provider session
+selection. Re-enabling a project with no saved selection defaults to restoring
+all chats; toggling it off and back on before saving preserves checked sessions.
+This choice does not prune the Git clone, stop local-to-repository uploads, or
+touch local provider-owned chats already present. Disabling a session does not
+remove a previous restore; it only prevents subsequent copies into the provider's
+folder.
 
 Project registration in both the app and CLI uses `ProjectRegistration`:
 choose a folder in the project's Git repository, detect its remote, and save
@@ -261,7 +269,25 @@ must not share a sync folder name. Removing a project from this PC deletes only
 its local registration; the shared mapping, synced chats and local chat files
 stay intact. The displayed last run is the modification time of this PC's
 baseline file. A per-project sync matches the normalized remote exactly so a
-similarly named project cannot be synced accidentally.
+similarly named project cannot be synced accidentally. The configuration
+window visually separates sync repository, automatic sync, registered projects,
+restore selection, and last-sync status. Registered projects have collapsed
+rows with provider, remote, folder, and actions shown on expansion; the add
+form is separate and its rarely used name/remote overrides are advanced options.
+At present only Visual Studio (Copilot) is wired into the app. The provider
+label in the UI is descriptive, not a per-project provider setting: local
+registration is keyed by Git remote and can later host more than one provider.
+
+For a future Claude Code provider, project registration must offer provider-
+specific discovery: enumerate candidate projects in Claude's own projects
+folder through the Claude provider, resolve each candidate to a Git remote,
+and let the user select a candidate before registering that remote and this
+PC's local project mapping. Do not infer project identity from Claude's encoded
+folder name or register path-only projects without a remote. Provider-specific
+metadata parsing, process locks, and session listing stay in the provider;
+Core keeps remote identity and the per-provider restore selection. The UI
+should only offer providers with implemented discovery and sync support; the
+current Visual Studio folder picker is not a substitute for Claude discovery.
 
 `CodeChatSync.Cli` remains available to anyone who
 prefers running `add`/`sync`/`discover` from a terminal or a script,

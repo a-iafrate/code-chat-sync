@@ -37,7 +37,8 @@
                     <ProgressRing x:Name="SettingsProgress" IsActive="False" Width="20" Height="20" />
                 </StackPanel>
                 <InfoBar x:Name="SettingsInfoBar" IsOpen="False" IsClosable="True" />
-                <TextBlock Text="Automatic sync" FontSize="20" Margin="0,16,0,0" />
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
+                <TextBlock Text="Automatic sync" FontSize="20" />
                 <CheckBox x:Name="AutomaticSyncCheckBox"
                           Content="Sync automatically after Visual Studio closes" />
                 <TextBlock Text="Turning this off does not affect Sync now or per-project sync."
@@ -45,26 +46,39 @@
                 <Button x:Name="SaveAutomaticSyncButton" Content="Save automatic sync preference"
                         Click="OnSaveAutomaticSyncClick" />
                 <InfoBar x:Name="AutomaticSyncInfoBar" IsOpen="False" IsClosable="True" />
-                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,16,0,0">
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                     <TextBlock Text="Projects on this PC" FontSize="20" />
-                    <Button Content="Refresh list" Click="OnRefreshProjectsClick" />
+                    <Button Content="Refresh" Click="OnRefreshProjectsClick" />
                 </StackPanel>
-                <TextBlock Text="Select a project Git repository to register it by its remote. Removing a project only stops syncing it on this PC; archived chats remain in the private sync repository."
+                <TextBlock Text="Projects are identified by their Git remote. Currently supported: Visual Studio (Copilot)."
                            TextWrapping="Wrap" />
-                <TextBox x:Name="ProjectFolderTextBox" Header="Project folder" PlaceholderText="Folder inside the project's Git repository" />
-                <Button Content="Browse for project..." Click="OnBrowseProjectClick" />
-                <TextBox x:Name="ProjectNameTextBox" Header="Sync folder name (optional)" PlaceholderText="Defaults to a name derived from the remote" />
-                <TextBox x:Name="ProjectRemoteTextBox" Header="Project Git remote (optional)" PlaceholderText="Detected from origin when blank" />
-                <Button x:Name="AddProjectButton" Content="Add project" Click="OnAddProjectClick" />
                 <InfoBar x:Name="ProjectInfoBar" IsOpen="False" IsClosable="True" />
-                <StackPanel x:Name="ProjectsPanel" Spacing="12" />
-                <TextBlock Text="Chats on this PC" FontSize="20" Margin="0,16,0,0" />
-                <TextBlock Text="Choose which chats from the sync repository are restored to Visual Studio on this PC. All chats stay in the Git repository; switching a chat off does not delete any files already on this PC."
+                <StackPanel x:Name="ProjectsPanel" Spacing="8" />
+                <Expander x:Name="AddProjectExpander" Header="Add a project" IsExpanded="False">
+                    <StackPanel Spacing="10" Padding="8">
+                        <TextBlock Text="Visual Studio (Copilot) · Choose a folder in the project's Git repository. The remote identifies it across PCs."
+                                   TextWrapping="Wrap" />
+                        <TextBox x:Name="ProjectFolderTextBox" Header="Project folder" PlaceholderText="Folder inside the project's Git repository" />
+                        <Button Content="Browse for project..." Click="OnBrowseProjectClick" HorizontalAlignment="Left" />
+                        <Expander Header="Advanced options" IsExpanded="False">
+                            <StackPanel Spacing="10" Padding="8">
+                                <TextBox x:Name="ProjectNameTextBox" Header="Sync folder name (optional)" PlaceholderText="Defaults to a name derived from the remote" />
+                                <TextBox x:Name="ProjectRemoteTextBox" Header="Project Git remote (optional)" PlaceholderText="Detected from origin when blank" />
+                            </StackPanel>
+                        </Expander>
+                        <Button x:Name="AddProjectButton" Content="Add project" Click="OnAddProjectClick" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </Expander>
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
+                <TextBlock Text="Chats to restore on this PC" FontSize="20" />
+                <TextBlock Text="Visual Studio (Copilot) · Uncheck Restore on this PC beside a project, then save, to exclude all its archived chats from restores here. Expand it to select individual chats instead. The Git clone, uploads, and existing local chats are unaffected."
                            TextWrapping="Wrap" />
                 <StackPanel x:Name="SessionSelectionPanel" Spacing="12" />
                 <Button x:Name="SaveSelectionButton" Content="Save chat selection" Click="OnSaveSelectionClick" />
                 <InfoBar x:Name="SelectionInfoBar" IsOpen="False" IsClosable="True" />
-                <TextBlock Text="Last sync" FontSize="20" Margin="0,12,0,0" />
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
+                <TextBlock Text="Last sync" FontSize="20" />
                 <Border Padding="12" CornerRadius="4"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                     <TextBlock x:Name="LastRunText" TextWrapping="Wrap"

@@ -13,7 +13,7 @@ public sealed partial class MainWindow : Window
     private readonly SyncHost _syncHost;
     private string? _loadedFolder;
     private bool _loadingSettings;
-    private readonly List<(ProjectIdentity Project, CheckBox All, List<(string Id, CheckBox Selected)> Sessions)> _sessionGroups = [];
+    private readonly List<(ProjectIdentity Project, CheckBox Restore, CheckBox All, List<(string Id, CheckBox Selected)> Sessions)> _sessionGroups = [];
 
     public MainWindow(SyncHost syncHost)
     {
@@ -247,6 +247,7 @@ public sealed partial class MainWindow : Window
             ProjectRemoteTextBox.Text = string.Empty;
             if (await LoadSettingsAsync())
             {
+                AddProjectExpander.IsExpanded = false;
                 ShowProjectMessage("Project registered on this PC. Sync now to archive its chats.", InfoBarSeverity.Success);
             }
         }
@@ -341,7 +342,7 @@ public sealed partial class MainWindow : Window
         var groups = await Task.Run(() =>
         {
             var shared = SharedConfig.Load(syncRoot);
-            var results = new List<(ProjectIdentity Project, string Name, string LocalPath, DateTime? LastRunUtc, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string Title)> Sessions)>();
+            var results = new List<(ProjectIdentity Project, string Name, string LocalPath, DateTime? LastRunUtc, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> Sessions)>();
             foreach (var entry in config.Projects)
             {
                 if (!ProjectIdentity.TryFromRemote(entry.Remote, out var identity) || identity is null)
@@ -358,7 +359,7 @@ public sealed partial class MainWindow : Window
 
                 var projectRoot = Path.Combine(syncRoot, "visualstudio", name);
                 var sessions = CopilotChatDiscovery.DiscoverSessions(projectRoot)
-                    .Select(session => (Id: Path.GetFileName(session.SessionDirectory), Title: session.Name ?? session.Id))
+                    .Select(session => (Id: Path.GetFileName(session.SessionDirectory), session.Name, session.UpdatedAt))
                     .ToArray();
                 var statePath = new SyncWorkspace(config, shared).GetStatePath("visualstudio", new ProjectInfo
                 {
@@ -374,18 +375,18 @@ public sealed partial class MainWindow : Window
 
         if (groups.Count == 0)
         {
-            ProjectsPanel.Children.Add(new TextBlock { Text = "No projects registered on this PC." });
-            SessionSelectionPanel.Children.Add(new TextBlock { Text = "Add a project above to manage its chats." });
+            ProjectsPanel.Children.Add(new TextBlock { Text = "No projects registered yet. Expand Add a project below to get started." });
+            SessionSelectionPanel.Children.Add(new TextBlock { Text = "Add a project above to choose its chats." });
             return;
         }
 
         foreach (var group in groups)
         {
-            var projectRow = new StackPanel { Spacing = 4 };
-            projectRow.Children.Add(new TextBlock { Text = group.Name, FontSize = 17 });
-            projectRow.Children.Add(new TextBlock { Text = $"Remote: {group.Project.NormalizedRemote}", TextWrapping = TextWrapping.Wrap });
-            projectRow.Children.Add(new TextBlock { Text = $"Local folder: {group.LocalPath}", TextWrapping = TextWrapping.Wrap });
-            projectRow.Children.Add(new TextBlock { Text = group.LastRunUtc is { } time
+            var projectDetails = new StackPanel { Spacing = 8, Padding = new Thickness(8) };
+            projectDetails.Children.Add(new TextBlock { Text = "Provider: Visual Studio (Copilot)" });
+            projectDetails.Children.Add(new TextBlock { Text = $"Git remote: {group.Project.NormalizedRemote}", TextWrapping = TextWrapping.Wrap });
+            projectDetails.Children.Add(new TextBlock { Text = $"Local folder: {group.LocalPath}", TextWrapping = TextWrapping.Wrap });
+            projectDetails.Children.Add(new TextBlock { Text = group.LastRunUtc is { } time
                 ? $"Last local sync run: {time.ToLocalTime():g}"
                 : "No local sync run yet." });
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -395,57 +396,156 @@ public sealed partial class MainWindow : Window
             var remove = new Button { Content = "Remove from this PC" };
             remove.Click += async (_, _) => await RemoveProjectAsync(group.Project, remove);
             actions.Children.Add(remove);
-            projectRow.Children.Add(actions);
-            ProjectsPanel.Children.Add(projectRow);
+            projectDetails.Children.Add(actions);
+            ProjectsPanel.Children.Add(new Expander
+            {
+                Header = $"{group.Name} · Visual Studio (Copilot) · {group.Sessions.Count} archived chats",
+                Content = projectDetails,
+                IsExpanded = false
+            });
 
-            var container = new StackPanel { Spacing = 4 };
-            container.Children.Add(new TextBlock { Text = group.Name, FontSize = 17 });
-            var all = new CheckBox { Content = "Restore all chats (including future chats)", IsChecked = group.Selection is null };
+            var container = new StackPanel { Spacing = 8 };
+            var restore = new CheckBox
+            {
+                Content = "Restore on this PC",
+                IsChecked = group.Selection is null || group.Selection.SessionIds.Count > 0,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ToolTipService.SetToolTip(restore, "Controls restores to Visual Studio on this PC; archived chats remain in Git.");
+            var all = new CheckBox { Content = "Restore all chats, including future ones", IsChecked = group.Selection is null };
             container.Children.Add(all);
-            var sessionPanel = new StackPanel { Spacing = 2, Margin = new Microsoft.UI.Xaml.Thickness(20, 0, 0, 0) };
-            all.Checked += (_, _) => SetSessionInputsEnabled(sessionPanel, false);
-            all.Unchecked += (_, _) => SetSessionInputsEnabled(sessionPanel, true);
+            var selectionSummary = new TextBlock { Opacity = 0.7 };
+            container.Children.Add(selectionSummary);
+            var expander = new Expander { Content = container, IsExpanded = false };
+            var projectHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            projectHeader.Children.Add(restore);
+            projectHeader.Children.Add(expander);
+            var sessionPanel = new StackPanel { Spacing = 8, Margin = new Microsoft.UI.Xaml.Thickness(20, 0, 0, 0) };
+            var search = new TextBox { PlaceholderText = "Search by title or session ID", Header = "Find chats" };
+            sessionPanel.Children.Add(search);
             var items = new List<(string Id, CheckBox Selected)>();
+            var searchable = new List<(string Id, string Title, CheckBox Selected)>();
             foreach (var session in group.Sessions)
             {
+                var title = FormatChatTitle(session.Name, session.Id);
+                var label = new StackPanel { Spacing = 2 };
+                label.Children.Add(new TextBlock
+                {
+                    Text = title, TextTrimming = TextTrimming.CharacterEllipsis,
+                    TextWrapping = TextWrapping.NoWrap, MaxWidth = 430
+                });
+                var shortId = session.Id.Length > 8 ? session.Id[..8] : session.Id;
+                label.Children.Add(new TextBlock
+                {
+                    Text = session.UpdatedAt is { } updated
+                        ? $"Updated {updated.ToLocalTime():g} · ID {shortId}"
+                        : $"ID {shortId}",
+                    Opacity = 0.65, FontSize = 12
+                });
                 var selected = new CheckBox
                 {
-                    Content = $"{session.Title} ({session.Id})",
-                    IsChecked = group.Selection?.SessionIds.Contains(session.Id, StringComparer.OrdinalIgnoreCase) ?? true,
-                    IsEnabled = all.IsChecked != true
+                    Content = label,
+                    IsChecked = group.Selection?.SessionIds.Contains(session.Id, StringComparer.OrdinalIgnoreCase) ?? true
                 };
+                ToolTipService.SetToolTip(selected, $"Session ID: {session.Id}");
+                selected.Checked += (_, _) => UpdateSelectionSummary();
+                selected.Unchecked += (_, _) => UpdateSelectionSummary();
                 sessionPanel.Children.Add(selected);
                 items.Add((session.Id, selected));
+                searchable.Add((session.Id, session.Name ?? title, selected));
             }
 
+            search.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             if (items.Count == 0)
             {
                 sessionPanel.Children.Add(new TextBlock { Text = "No synced chats for this project yet." });
             }
 
+            var noMatches = new TextBlock { Text = "No chats match this search.", Visibility = Visibility.Collapsed };
+            sessionPanel.Children.Add(noMatches);
             container.Children.Add(sessionPanel);
-            SessionSelectionPanel.Children.Add(container);
-            _sessionGroups.Add((group.Project, all, items));
+
+            void UpdateSelectionSummary()
+            {
+                var enabled = restore.IsChecked == true;
+                var restoreAll = all.IsChecked == true;
+                var selectedCount = items.Count(item => item.Selected.IsChecked == true);
+                all.IsEnabled = enabled;
+                sessionPanel.Visibility = enabled && !restoreAll ? Visibility.Visible : Visibility.Collapsed;
+                expander.Header = !enabled
+                    ? $"{group.Name} · restore off"
+                    : restoreAll
+                        ? $"{group.Name} · {items.Count} chats · restore all"
+                        : $"{group.Name} · {selectedCount}/{items.Count} chats selected";
+                selectionSummary.Text = !enabled
+                    ? "No chats from this project will be restored to Visual Studio on this PC. Archived and existing local chats remain unchanged."
+                    : restoreAll
+                        ? $"All chats selected ({items.Count} currently archived)."
+                        : $"{selectedCount} of {items.Count} archived chats selected. Future chats will not be restored automatically.";
+            }
+
+            restore.Checked += (_, _) =>
+            {
+                if (all.IsChecked != true && items.All(item => item.Selected.IsChecked != true))
+                {
+                    all.IsChecked = true;
+                }
+
+                UpdateSelectionSummary();
+            };
+            restore.Unchecked += (_, _) => UpdateSelectionSummary();
+            all.Checked += (_, _) => UpdateSelectionSummary();
+            all.Unchecked += (_, _) => UpdateSelectionSummary();
+            search.TextChanged += (_, _) =>
+            {
+                var query = search.Text.Trim();
+                var matches = 0;
+                foreach (var (id, title, selected) in searchable)
+                {
+                    var visible = title.Contains(query, StringComparison.OrdinalIgnoreCase)
+                        || id.Contains(query, StringComparison.OrdinalIgnoreCase);
+                    selected.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                    if (visible)
+                    {
+                        matches++;
+                    }
+                }
+
+                noMatches.Visibility = items.Count > 0 && matches == 0 ? Visibility.Visible : Visibility.Collapsed;
+            };
+            UpdateSelectionSummary();
+            SessionSelectionPanel.Children.Add(projectHeader);
+            _sessionGroups.Add((group.Project, restore, all, items));
         }
 
         SaveSelectionButton.IsEnabled = true;
     }
 
-    private static void SetSessionInputsEnabled(StackPanel panel, bool enabled)
+    private static string FormatChatTitle(string? name, string id)
     {
-        foreach (var child in panel.Children.OfType<CheckBox>())
+        if (string.IsNullOrWhiteSpace(name) || string.Equals(name.Trim(), id, StringComparison.OrdinalIgnoreCase))
         {
-            child.IsEnabled = enabled;
+            return "Untitled chat";
         }
+
+        var title = string.Join(" ", name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (title.StartsWith("The following code changes are from one or more source files in a diff format.", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Untitled chat";
+        }
+
+        return title.Length > 90 ? title[..87] + "..." : title;
     }
 
     private async void OnSaveSelectionClick(object sender, RoutedEventArgs e)
     {
         var selections = _sessionGroups.Select(group =>
-            (group.Project, SessionIds: group.All.IsChecked == true
-                ? (IReadOnlyList<string>?)null
-                : group.Sessions.Where(session => session.Selected.IsChecked == true)
-                    .Select(session => session.Id).ToArray())).ToArray();
+            (group.Project, SessionIds: group.Restore.IsChecked != true
+                ? (IReadOnlyList<string>)[]
+                : group.All.IsChecked == true
+                    ? null
+                    : group.Sessions.Where(session => session.Selected.IsChecked == true)
+                        .Select(session => session.Id).ToArray())).ToArray();
 
         SaveSelectionButton.IsEnabled = false;
         try

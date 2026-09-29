@@ -71,7 +71,8 @@ without a recorded repository still need validation.
       the provider folder; the full Git clone is retained and existing local
       chats are not deleted
 - [x] List of registered projects (add/remove on this PC), local path and
-      last run; manual sync per project
+      last run; manual sync per project. The list and add form are collapsible,
+      show Visual Studio (Copilot) explicitly, and the window sections are separated.
 - [x] Toggle: automatic sync on VS close (per PC, enabled by default)
 - [ ] Conflicts section: "keep local / keep remote" choice
 - [ ] Sync log
@@ -105,7 +106,10 @@ without a recorded repository still need validation.
 
 ## Phase 5 — Future providers (once Visual Studio works well)
 
-- [ ] Claude Code provider (`~/.claude/projects/`, path remapping)
+- [ ] Claude Code provider (`~/.claude/projects/`, path remapping): discover
+      candidate projects from Claude's folder, map them to Git remotes, and
+      present a selectable list when adding a Claude project. Validate path
+      mapping and runtime lock rules before enabling sync and restore in the UI.
 - [ ] Copilot CLI provider (`~/.copilot`)
 - [ ] Evaluate a VS Code provider (probably unnecessary, given VS Code's
       native sync is already available)

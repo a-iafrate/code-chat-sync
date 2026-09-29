@@ -45,22 +45,28 @@ optionally set its Git `origin` URL. Select an existing clone, or check
 A blank URL leaves an existing remote unchanged. The window reports errors
 without saving a failed configuration change.
 
-Under *Projects on this PC*, choose a folder inside a project's Git repository,
-then select *Add project*. The app detects its Git remote; if none is available,
-enter one explicitly. You can see the detected remote, local folder and last
-sync run, sync just that project, or remove its registration on this PC. Removing
-it does **not** delete any local chats or archived chats in the private Git
-repository. `codechatsync add` remains available in the CLI.
+Under *Projects on this PC*, expand *Add a project* and choose a folder inside
+a project's Git repository. The app detects its Git remote; if none is available,
+enter one under *Advanced options*. Registered projects are collapsed by default;
+expand one to see its provider, remote, local folder and last sync run, sync just
+that project, or remove its registration on this PC. Currently only Visual Studio
+(Copilot) is supported. Removing a registration does **not** delete local or
+archived chats. `codechatsync add` remains available in the CLI.
 
 Under *Automatic sync*, uncheck the option and save to stop syncing automatically
 after Visual Studio closes on this PC. It is enabled by default, including for
 existing installations. *Sync now* and per-project sync remain available.
 
-Under *Chats on this PC*, choose which archived chats to restore into
-Visual Studio on this machine. The full Git clone remains available for backup;
-a different PC can select a different subset. By default all sessions are
-restored. Unchecking a session prevents future restores but does **not** delete
-an existing local chat or remove anything from the repository.
+Under *Chats to restore on this PC*, uncheck *Restore on this PC* beside a
+collapsed project and save to prevent all its archived chats from being restored
+to Visual Studio on this machine. Expand a project to select individual chats;
+the searchable list shows short titles, dates and session IDs. By default all
+current and future sessions are restored. Uncheck *Restore all chats* to choose
+a subset and save: future chats are excluded until selected. Re-enabling a
+project with no saved selection starts with restore all. The full Git clone
+remains available for backup; a different PC can select a different subset.
+These choices do not stop uploads from registered projects and do **not** delete
+existing local chats or anything from the repository.
 
 ## Why
 
