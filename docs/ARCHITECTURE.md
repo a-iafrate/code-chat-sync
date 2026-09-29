@@ -88,15 +88,108 @@ commit/push/pull. The provider only has to say where to look.
 
 ```
 .codechatsync/
+  codechatsync.json                      # shared Git remote → project name mapping
+  .gitignore                             # excludes .backups/
+  .backups/                              # local safety copies, never committed
   <provider>/<project-from-remote>/...   # e.g. visualstudio/clientA-erp/
 ```
+
+## Visual Studio chat storage (verified, undocumented)
+
+Copilot chats are **not** stored in the solution's `.vs` folder — that only
+holds `CopilotIndices/<version>/SemanticSymbols.db*`, a semantic symbol index.
+They live per user, per session under:
+
+```
+%LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\
+  session-store.db (+ -shm/-wal)          # machine-wide index of ALL repositories
+  session-state\<session-id>\
+    workspace.yaml                        # descriptor: id, cwd, repository, git_root, branch, name
+    events.jsonl                          # append-only transcript (source of truth)
+    checkpoints\, files\, research\       # session artifacts
+    session.db                            # agent scratch DB (todos, inbox)
+    inuse.<pid>.lock                      # present only while the session is open
+```
+
+What gets synced, and why:
+
+- **Synced:** `workspace.yaml`, `events.jsonl`, and the session's artifact
+  folders. The transcript is entirely in `events.jsonl`.
+- **`session.db` — excluded.** Inspection of the local store showed it holds
+  only the agent's `todos`/`todo_deps`/`inbox_entries` scratch tables. It is
+  present in fewer than half of the sessions, is schema-only (empty) in almost
+  all of those, and the session with the largest transcript had no such file at
+  all. It carries no chat content.
+- **`session-store.db` — never synced.** It is machine-wide and indexes the
+  sessions of *every* repository on the PC, so copying it into the sync repo
+  would put unrelated clients' data there, violating the separation rule. A
+  session folder is self-contained without it: many recent, content-rich
+  sessions exist on disk with no row in this database. If a restored session
+  ever needs to be registered there, the tool must insert only that session's
+  rows into the local database, never copy the file.
+- **`*.lock`, `*-shm`, `*-wal` — excluded.** Per-PC or live-session runtime
+  state.
+
+The format is undocumented: all of this is best-effort and confined to
+`CodeChatSync.Providers.VisualStudio`.
 
 ## Config
 
 - Shared config (in the sync repo, versioned): `Git remote → project/client
-  name` mapping.
-- Per-PC local config (not versioned): the local path of each project
-  registered on that machine.
+  name` mapping, stored as `codechatsync.json` at the sync folder root. It
+  holds no local paths, so it stays valid on every PC.
+- Per-PC local config (not versioned):
+  `%APPDATA%\CodeChatSync\local-config.json`, holding the sync folder and the
+  local path of each registered project.
+- Per-PC sync baselines (not versioned):
+  `%LOCALAPPDATA%\CodeChatSync\state\<provider>\<project>.json`, recording the
+  content hash of each file at the last successful sync. These are what tell a
+  one-sided change from a real conflict, so they are machine-specific and must
+  never end up in the sync repo.
+- `CODECHATSYNC_HOME` overrides both local locations, which keeps tests and
+  portable installs away from the real user configuration.
+
+## CLI commands
+
+```
+codechatsync discover [path] [--all] [--allow-running-provider]
+codechatsync config show
+codechatsync config set-sync-root <path> [--init]
+codechatsync add [path] [--name <name>] [--remote <url>]
+codechatsync list
+codechatsync sync [--project <name>] [--dry-run] [--no-git]
+```
+
+`add` identifies the project by reading the Git remote from the repository's
+own `.git/config`, so no Git library or `git` executable is required just to
+register a project. Exit codes: `0` success, `1` failure, `2` bad usage or
+configuration, `3` sync completed with conflicts, `4` the sync repository
+could not be pulled so nothing was changed locally.
+
+## Git on the sync repository
+
+`CodeChatSync.Git` shells out to the installed `git` command line rather than
+taking a Git library dependency. That reuses the user's existing credential
+helper, SSH keys and proxy configuration, so the tool never handles or stores
+a credential. `GIT_TERMINAL_PROMPT=0` prevents an interactive prompt from
+hanging an unattended sync.
+
+A `sync` run is pull → copy → commit → push:
+
+- **Pull is `--ff-only`.** Chat files are copied wholesale, so an automatic
+  merge or rebase could silently combine two versions of the same transcript.
+  A divergence stops the run and leaves both sides untouched for the user to
+  resolve.
+- **No remote, or a branch never pushed**, is a normal first run, not a
+  failure: the sync continues and the commit simply stays local.
+- **Missing Git, or a sync folder that is not a repository**, degrades to
+  plain file copying with an explanation, so chats still reach the sync folder.
+  `--no-git` forces that mode.
+- **`config set-sync-root --init`** creates the repository and writes a
+  `.gitignore` containing `.backups/`, keeping the local backups taken before
+  each overwrite out of the sync repo.
+- Only the sync repository is ever touched. Client repositories are never
+  committed to, pulled, or pushed.
 
 ## Planned providers (after Visual Studio)
 

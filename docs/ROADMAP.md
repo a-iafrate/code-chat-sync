@@ -2,19 +2,30 @@
 
 ## Current status
 
-Phase 0 is in progress. The .NET 10 solution scaffold and a minimal WinUI 3
-app shell are in place and build cleanly. The CLI has a read-only discovery
-command; since it never modifies data, the running-provider guard is skipped
-by default in Debug builds and can be overridden in Release via
-`--allow-running-provider` or `CODECHATSYNC_ALLOW_RUNNING_PROVIDER`.
+Phase 0 is complete and Phase 1 is in progress. The .NET 10 solution scaffold
+and a minimal WinUI 3 app shell are in place and build cleanly. The CLI has a
+read-only discovery command; since it never modifies data, the
+running-provider guard is skipped by default in Debug builds and can be
+overridden in Release via `--allow-running-provider` or
+`CODECHATSYNC_ALLOW_RUNNING_PROVIDER`. Operations that copy chat data keep the
+guard active in every configuration.
 
 Chat storage has been located: **not** under the solution's `.vs` folder, but
 under `%LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\session-state\<session-id>\`,
 with `workspace.yaml` as descriptor and `events.jsonl` as transcript. The
 descriptor records `repository`, `git_root`, and `branch`, which directly
-supports identifying a project by its Git remote. Next: define the
-`IChatProvider` contract around this layout and decide how to handle sessions
-that lack a recorded repository.
+supports identifying a project by its Git remote.
+
+The `IChatProvider` contract, the Git-remote project identity, and the
+bidirectional copy service (backup before overwrite, baseline-hash conflict
+detection, no symlinks) are implemented and covered by `CodeChatSync.Tests`
+(xUnit). Sync includes `workspace.yaml`, `events.jsonl`, and session
+artifacts; it excludes `session.db` (agent scratch data, no chat content) and
+never touches the machine-wide `session-store.db`, which indexes every
+repository on the PC.
+
+Phase 1 is complete. Next: Git commit/push/pull on the private sync repo, and
+a decision on sessions that lack a recorded repository.
 
 ## Phase 0 — Discover (first concrete step)
 
@@ -31,21 +42,21 @@ that lack a recorded repository.
 
 ## Phase 1 — Core + Visual Studio provider
 
-- [ ] `IChatProvider` and the `ProjectInfo` model (identity via Git remote)
-- [ ] Visual Studio provider: `Discover` and `MapToLocal`
-- [ ] Per-PC local config (paths) + shared config in the sync repo (remote →
+- [x] `IChatProvider` and the `ProjectInfo` model (identity via Git remote)
+- [x] Visual Studio provider: `Discover` and `MapToLocal`
+- [x] Per-PC local config (paths) + shared config in the sync repo (remote →
       project mapping)
-- [ ] Copy local → sync folder (push) and sync folder → local (pull), no
+- [x] Copy local → sync folder (push) and sync folder → local (pull), no
       symlinks
-- [ ] Backup of the local file before every overwrite
+- [x] Backup of the local file before every overwrite
 
 ## Phase 2 — Git + CLI commands
 
-- [ ] `CodeChatSync.Git`: commit/push/pull on the private sync repo
-- [ ] `codechatsync add <solution-path>` — register a solution
+- [x] `CodeChatSync.Git`: commit/push/pull on the private sync repo
+- [x] `codechatsync add <solution-path>` — register a solution
       (lightweight CLI)
-- [ ] `codechatsync sync` — push + pull (lightweight CLI)
-- [ ] Conflict handling: same file changed on two PCs → don't overwrite,
+- [x] `codechatsync sync` — push + pull (lightweight CLI)
+- [x] Conflict handling: same file changed on two PCs → don't overwrite,
       flag it
 
 ## Phase 3 — WinUI app: tray, watch, and auto-start

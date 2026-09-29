@@ -3,9 +3,35 @@
 Syncs AI chats (Copilot in Visual Studio, other tools later) and personal
 prompts across the user's PCs, keeping them **out of client Git repos**.
 
-> Status: Phase 0 is in progress. The initial .NET 10 solution scaffold and
-> read-only `discover` prototype are underway. See [`docs/ROADMAP.md`](docs/ROADMAP.md)
-> for current progress.
+> Status: Phases 0 and 1 are complete. Chat discovery, project identity from
+> the Git remote, and bidirectional copying with backup and conflict
+> detection work from the CLI. Git commit/push/pull on the sync repo is next.
+> See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current progress.
+
+## Quick start (CLI)
+
+```powershell
+# Point the tool at your private sync repository
+# (add --init to create the repository if the folder is not one yet)
+codechatsync config set-sync-root C:\path\to\your\sync-repo
+
+# Register a project, identified by its Git remote
+codechatsync add C:\path\to\your\project --name client-erp
+
+# See what would be copied, then do it
+codechatsync sync --dry-run
+codechatsync sync
+```
+
+`codechatsync discover` lists the chat sessions found on this PC without
+copying anything. Local chat files are only written while Visual Studio is
+closed, and every local file is backed up before being overwritten.
+
+`sync` pulls the sync repository, copies the chats, then commits and pushes,
+using the `git` you already have installed so your existing credential helper
+and SSH keys keep working. Add `--no-git` to copy files only. Pulls are
+fast-forward only: if the same chat changed on two PCs, the run stops and
+leaves both sides untouched instead of merging two transcripts.
 
 ## Why
 

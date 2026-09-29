@@ -2,6 +2,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CodeChatSync.Providers.VisualStudio\CodeChatSync.Providers.VisualStudio.csproj" />
+    <ProjectReference Include="..\CodeChatSync.Git\CodeChatSync.Git.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.12" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -214,13 +214,55 @@ public static class CopilotChatDiscovery
             : null;
     }
 
+    /// <summary>
+    /// Whether a session is currently open, based on its <c>inuse.&lt;pid&gt;.lock</c> files.
+    /// </summary>
+    /// <remarks>
+    /// A lock is only honored while the process that wrote it is still alive: Visual
+    /// Studio leaves the file behind when it exits unexpectedly, and stale locks were
+    /// observed months old. Treating those as "open" would silently exclude the
+    /// session from syncing forever. A lock whose owner cannot be determined is
+    /// treated as live, which errs on the side of not touching the files.
+    /// </remarks>
     private static bool HasLockFile(string sessionDirectory)
     {
         try
         {
-            return Directory.EnumerateFiles(sessionDirectory, "inuse.*.lock").Any();
+            foreach (var lockFile in Directory.EnumerateFiles(sessionDirectory, "inuse.*.lock"))
+            {
+                if (IsLockOwnerRunning(lockFile))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsLockOwnerRunning(string lockFilePath)
+    {
+        var segments = Path.GetFileName(lockFilePath).Split('.');
+        if (segments.Length != 3 || !int.TryParse(segments[1], CultureInfo.InvariantCulture, out var processId))
+        {
+            return true;
+        }
+
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            // No process with that id: the lock was left behind.
+            return false;
+        }
+        catch (InvalidOperationException)
         {
             return false;
         }
