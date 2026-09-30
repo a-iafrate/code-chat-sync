@@ -36,6 +36,10 @@ public sealed class SyncState
         return Convert.ToHexString(SHA256.HashData(stream));
     }
 
+    /// <summary>Hashes in-memory content with the same algorithm as <see cref="ComputeHash(string)"/>.</summary>
+    public static string ComputeHash(ReadOnlySpan<byte> content) =>
+        Convert.ToHexString(SHA256.HashData(content));
+
     public static SyncState Load(string path)
     {
         if (!File.Exists(path))

@@ -124,7 +124,13 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
             };
         }
 
-        var localHash = SyncState.ComputeHash(localPath);
+        var mapper = provider is IChatContentMapper candidate && candidate.IsMapped(relativePath) ? candidate : null;
+        var portableLocal = mapper is not null && File.Exists(localPath)
+            ? mapper.ToPortable(project, File.ReadAllBytes(localPath))
+            : null;
+        var localHash = portableLocal is not null
+            ? SyncState.ComputeHash(portableLocal)
+            : SyncState.ComputeHash(localPath);
         var syncHash = SyncState.ComputeHash(syncPath);
         var baseline = state.GetBaseline(relativePath);
 
@@ -136,6 +142,13 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
 
         if (localHash is not null && localHash == syncHash)
         {
+            // Same chat content, but this PC's copy may still carry another PC's paths
+            // (for example, restored before mapping existed): rewrite it for this PC.
+            if (mapper is not null && restoreAllowed && NeedsLocalRewrite(mapper, project, localPath, syncPath))
+            {
+                return Pull(provider, project, relativePath, localPath, syncPath, syncHash, syncRootPath, state, runningProcesses, dryRun, mapper);
+            }
+
             if (!dryRun)
             {
                 state.SetBaseline(relativePath, localHash);
@@ -168,8 +181,14 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
         }
 
         return localChanged
-            ? Push(relativePath, localPath, syncPath, localHash, state, dryRun)
-            : Pull(provider, project, relativePath, localPath, syncPath, syncHash, syncRootPath, state, runningProcesses, dryRun);
+            ? Push(relativePath, localPath, syncPath, localHash, portableLocal, state, dryRun)
+            : Pull(provider, project, relativePath, localPath, syncPath, syncHash, syncRootPath, state, runningProcesses, dryRun, mapper);
+    }
+
+    private static bool NeedsLocalRewrite(IChatContentMapper mapper, ProjectInfo project, string localPath, string syncPath)
+    {
+        var expected = mapper.ToLocal(project, File.ReadAllBytes(syncPath));
+        return !File.ReadAllBytes(localPath).AsSpan().SequenceEqual(expected);
     }
 
     private static SyncEntryResult Push(
@@ -177,6 +196,7 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
         string localPath,
         string syncPath,
         string? localHash,
+        byte[]? portableLocal,
         SyncState state,
         bool dryRun)
     {
@@ -199,7 +219,15 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
                 Directory.CreateDirectory(directory);
             }
 
-            File.Copy(localPath, syncPath, overwrite: true);
+            if (portableLocal is not null)
+            {
+                File.WriteAllBytes(syncPath, portableLocal);
+            }
+            else
+            {
+                File.Copy(localPath, syncPath, overwrite: true);
+            }
+
             state.SetBaseline(relativePath, localHash);
         }
 
@@ -216,7 +244,8 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
         string syncRootPath,
         SyncState state,
         IReadOnlyList<string> runningProcesses,
-        bool dryRun)
+        bool dryRun,
+        IChatContentMapper? mapper)
     {
         if (syncHash is null)
         {
@@ -267,7 +296,15 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
                 Directory.CreateDirectory(directory);
             }
 
-            File.Copy(syncPath, localPath, overwrite: true);
+            if (mapper is not null)
+            {
+                File.WriteAllBytes(localPath, mapper.ToLocal(project, File.ReadAllBytes(syncPath)));
+            }
+            else
+            {
+                File.Copy(syncPath, localPath, overwrite: true);
+            }
+
             state.SetBaseline(relativePath, syncHash);
         }
 

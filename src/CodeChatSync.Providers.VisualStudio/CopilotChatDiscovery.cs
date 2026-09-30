@@ -14,7 +14,7 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// </remarks>
 public static class CopilotChatDiscovery
 {
-    private const string WorkspaceDescriptorFileName = "workspace.yaml";
+    internal const string WorkspaceDescriptorFileName = "workspace.yaml";
     private const string TranscriptFileName = "events.jsonl";
 
     /// <summary>Default session-state root for the current user.</summary>

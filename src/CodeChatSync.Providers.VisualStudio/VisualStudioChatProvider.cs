@@ -11,7 +11,7 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// The layout is undocumented, so everything here is best-effort and stays inside
 /// this project.
 /// </remarks>
-public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : IChatSessionProvider
+public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : IChatSessionProvider, IChatContentMapper
 {
     /// <summary>
     /// Runtime state that is specific to one PC or to a live session, and therefore
@@ -32,8 +32,8 @@ public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : 
     /// The machine-wide <c>session-store.db</c> one level above the session folders
     /// is never a candidate for syncing: it indexes the sessions of <em>every</em>
     /// repository on the PC, so copying it into a sync repository would mix
-    /// unrelated projects' data. Any future need to register a restored session
-    /// there must insert only that session's rows locally.
+    /// unrelated projects' data. A restored session does not need a row there: the
+    /// Copilot backend lists sessions from their folders.
     /// </para>
     /// </remarks>
     private static readonly string[] ExcludedExtensions =
@@ -101,6 +101,26 @@ public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : 
         }
 
         return normalized[..separator];
+    }
+
+    /// <summary>Only a session's <c>workspace.yaml</c> embeds this PC's paths.</summary>
+    public bool IsMapped(string relativePath)
+    {
+        var segments = RelativePathGuard.Normalize(relativePath).Split('/');
+        return segments.Length == 2
+            && string.Equals(segments[1], CopilotChatDiscovery.WorkspaceDescriptorFileName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public byte[] ToPortable(ProjectInfo project, byte[] localContent)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        return WorkspaceDescriptorPathMapper.ToPortable(localContent, project.LocalPath);
+    }
+
+    public byte[] ToLocal(ProjectInfo project, byte[] portableContent)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        return WorkspaceDescriptorPathMapper.ToLocal(portableContent, project.LocalPath, Directory.Exists);
     }
 
     /// <summary>
