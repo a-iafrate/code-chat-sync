@@ -1,110 +1,410 @@
 <Window
-    x:Class="CodeChatSync.App.MainWindow"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="CodeChatSync">
-    <Grid x:Name="WindowRoot" Padding="24" RowSpacing="16" MinWidth="560" MinHeight="520"
-          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+	x:Class="CodeChatSync.App.MainWindow"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	Title="CodeChatSync">
+	<Window.SystemBackdrop>
+		<MicaBackdrop />
+	</Window.SystemBackdrop>
 
-        <StackPanel Grid.Row="0" Spacing="4">
-            <TextBlock Text="CodeChatSync" FontSize="28" />
-            <TextBlock x:Name="ProviderStatusText" Opacity="0.8" TextWrapping="Wrap" />
-        </StackPanel>
+	<Grid x:Name="WindowRoot" MinWidth="720" MinHeight="560">
+		<Grid.Resources>
+			<Style x:Key="CardStyle" TargetType="Border">
+				<Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+				<Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+				<Setter Property="BorderThickness" Value="1" />
+				<Setter Property="CornerRadius" Value="4" />
+				<Setter Property="Padding" Value="16,12" />
+				<Setter Property="MinHeight" Value="68" />
+			</Style>
+			<Style x:Key="PageTitleStyle" TargetType="TextBlock">
+				<Setter Property="FontSize" Value="28" />
+				<Setter Property="LineHeight" Value="36" />
+				<Setter Property="FontWeight" Value="SemiBold" />
+			</Style>
+			<Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+				<Setter Property="FontSize" Value="14" />
+				<Setter Property="FontWeight" Value="SemiBold" />
+				<Setter Property="Margin" Value="0,24,0,4" />
+			</Style>
+			<Style x:Key="CaptionStyle" TargetType="TextBlock">
+				<Setter Property="FontSize" Value="12" />
+				<Setter Property="LineHeight" Value="16" />
+				<Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+				<Setter Property="TextWrapping" Value="Wrap" />
+			</Style>
+			<Style x:Key="MonoCaptionStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionStyle}">
+				<Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+				<Setter Property="TextWrapping" Value="NoWrap" />
+				<Setter Property="TextTrimming" Value="CharacterEllipsis" />
+			</Style>
+			<Style x:Key="VerticalDividerStyle" TargetType="Border">
+				<Setter Property="Width" Value="1" />
+				<Setter Property="Height" Value="24" />
+				<Setter Property="VerticalAlignment" Value="Center" />
+				<Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+			</Style>
+			<Style x:Key="ChatRowStyle" TargetType="Border">
+				<Setter Property="Padding" Value="12,4" />
+				<Setter Property="BorderThickness" Value="0,0,0,1" />
+				<Setter Property="BorderBrush" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+			</Style>
+			<Style x:Key="ChatListStyle" TargetType="Border">
+				<Setter Property="BorderThickness" Value="1" />
+				<Setter Property="CornerRadius" Value="4" />
+				<Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+				<Setter Property="Background" Value="{ThemeResource LayerFillColorDefaultBrush}" />
+			</Style>
+			<Style x:Key="CardIconStyle" TargetType="FontIcon">
+				<Setter Property="FontSize" Value="20" />
+				<Setter Property="VerticalAlignment" Value="Center" />
+				<Setter Property="Margin" Value="0,0,16,0" />
+			</Style>
+		</Grid.Resources>
+		<Grid.RowDefinitions>
+			<RowDefinition Height="48" />
+			<RowDefinition Height="*" />
+		</Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-            <Button x:Name="SyncNowButton" Content="Sync now" Click="OnSyncNowClick" />
-            <ProgressRing x:Name="SyncProgress" IsActive="False" Width="20" Height="20" />
-        </StackPanel>
+		<Grid x:Name="AppTitleBar" Grid.Row="0" Padding="16,0,0,0" ColumnSpacing="12">
+			<Grid.ColumnDefinitions>
+				<ColumnDefinition Width="Auto" />
+				<ColumnDefinition Width="*" />
+			</Grid.ColumnDefinitions>
+			<Border Width="18" Height="18" CornerRadius="4" VerticalAlignment="Center"
+					Background="{ThemeResource AccentFillColorDefaultBrush}">
+				<FontIcon Glyph="&#xE895;" FontSize="11" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+			</Border>
+			<TextBlock Grid.Column="1" Text="CodeChatSync" FontSize="12" VerticalAlignment="Center" />
+		</Grid>
 
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-            <StackPanel Spacing="12">
-                <TextBlock Text="Sync repository" FontSize="20" />
-                <TextBlock Text="Use a separate private Git repository, never a client project folder."
-                           TextWrapping="Wrap" />
-                <TextBox x:Name="SyncFolderTextBox" Header="Local sync folder"
-                         TextChanged="OnSyncFolderChanged"
-                         PlaceholderText="Choose an existing clone or initialize a new folder" />
-                <Button Content="Browse..." Click="OnBrowseFolderClick" />
-                <TextBox x:Name="RemoteTextBox" Header="Git origin URL (optional)"
-                         PlaceholderText="Leave blank to keep the existing remote" />
-                <CheckBox x:Name="InitializeCheckBox" Content="Initialize as a Git repository if needed" />
-                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <Button x:Name="SaveSettingsButton" Content="Save settings" Click="OnSaveSettingsClick" />
-                    <ProgressRing x:Name="SettingsProgress" IsActive="False" Width="20" Height="20" />
-                </StackPanel>
-                <InfoBar x:Name="SettingsInfoBar" IsOpen="False" IsClosable="True" />
-                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
-                <TextBlock Text="Automatic sync" FontSize="20" />
-                <CheckBox x:Name="AutomaticSyncCheckBox"
-                          Content="Sync automatically after Visual Studio closes" />
-                <TextBlock Text="Turning this off does not affect Sync now or per-project sync."
-                           TextWrapping="Wrap" />
-                <Button x:Name="SaveAutomaticSyncButton" Content="Save automatic sync preference"
-                        Click="OnSaveAutomaticSyncClick" />
-                <InfoBar x:Name="AutomaticSyncInfoBar" IsOpen="False" IsClosable="True" />
-                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
-                <TextBlock Text="Appearance" FontSize="20" />
-                <ComboBox x:Name="ThemeComboBox" Header="Window theme" HorizontalAlignment="Left" MinWidth="200">
-                    <ComboBoxItem Content="Use system setting" />
-                    <ComboBoxItem Content="Light" />
-                    <ComboBoxItem Content="Dark" />
-                </ComboBox>
-                <Button x:Name="SaveThemeButton" Content="Save theme" Click="OnSaveThemeClick" HorizontalAlignment="Left" />
-                <InfoBar x:Name="ThemeInfoBar" IsOpen="False" IsClosable="True" />
-                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
-                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <TextBlock Text="Projects on this PC" FontSize="20" />
-                    <Button Content="Refresh" Click="OnRefreshProjectsClick" />
-                </StackPanel>
-                <TextBlock Text="Projects are identified by their Git remote. The same project can include both Visual Studio (Copilot) and Claude Code."
-                           TextWrapping="Wrap" />
-                <InfoBar x:Name="ProjectInfoBar" IsOpen="False" IsClosable="True" />
-                <StackPanel x:Name="ProjectsPanel" Spacing="8" />
-                <Expander x:Name="AddProjectExpander" Header="Add a project" IsExpanded="False">
-                    <StackPanel Spacing="10" Padding="8">
-                        <TextBlock Text="Visual Studio (Copilot) · Choose a folder in the project's Git repository. The remote identifies it across PCs."
-                                   TextWrapping="Wrap" />
-                        <TextBox x:Name="ProjectFolderTextBox" Header="Project folder" PlaceholderText="Folder inside the project's Git repository" />
-                        <Button Content="Browse for project..." Click="OnBrowseProjectClick" HorizontalAlignment="Left" />
-                        <Expander Header="Advanced options" IsExpanded="False">
-                            <StackPanel Spacing="10" Padding="8">
-                                <TextBox x:Name="ProjectNameTextBox" Header="Sync folder name (optional)" PlaceholderText="Defaults to a name derived from the remote" />
-                                <TextBox x:Name="ProjectRemoteTextBox" Header="Project Git remote (optional)" PlaceholderText="Detected from origin when blank" />
-                            </StackPanel>
-                        </Expander>
-                        <Button x:Name="AddProjectButton" Content="Add project" Click="OnAddProjectClick" HorizontalAlignment="Left" />
-                    </StackPanel>
-                </Expander>
-                <Expander Header="Add a Claude Code project" IsExpanded="False">
-                    <StackPanel Spacing="8" Padding="8">
-                        <TextBlock Text="Discover sessions under your Claude Code projects folder. Only existing Git repositories with a verified remote can be registered; the same remote can also have Copilot chats. Close Claude Code completely (including any node-hosted instances) before discovering or syncing."
-                                   TextWrapping="Wrap" />
-                        <Button x:Name="DiscoverClaudeButton" Content="Find Claude Code projects" Click="OnDiscoverClaudeClick" HorizontalAlignment="Left" />
-                        <StackPanel x:Name="ClaudeCandidatePanel" Spacing="8" />
-                    </StackPanel>
-                </Expander>
-                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
-                <TextBlock Text="Chats to restore on this PC" FontSize="20" />
-                <TextBlock Text="Choose restores separately for each provider and project. Uncheck Restore on this PC and save to exclude its archived chats from restores here. The Git clone, uploads, and existing local chats are unaffected."
-                           TextWrapping="Wrap" />
-                <TextBlock Text="Claude Code restores currently require the same project path on both PCs. Chats with another or missing cwd are skipped; cross-path remapping and resumed-session visibility are not yet verified."
-                           TextWrapping="Wrap" Opacity="0.8" />
-                <StackPanel x:Name="SessionSelectionPanel" Spacing="12" />
-                <Button x:Name="SaveSelectionButton" Content="Save chat selection" Click="OnSaveSelectionClick" />
-                <InfoBar x:Name="SelectionInfoBar" IsOpen="False" IsClosable="True" />
-                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,16,0,0" />
-                <TextBlock Text="Last sync" FontSize="20" />
-                <Border Padding="12" CornerRadius="4"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                    <TextBlock x:Name="LastRunText" TextWrapping="Wrap"
-                               Text="No sync has run yet in this session." />
-                </Border>
-            </StackPanel>
-        </ScrollViewer>
-    </Grid>
+		<NavigationView x:Name="NavView" Grid.Row="1"
+						PaneDisplayMode="Left" OpenPaneLength="240"
+						IsBackButtonVisible="Collapsed" IsPaneToggleButtonVisible="False"
+						IsSettingsVisible="True" SelectionChanged="OnNavigationSelectionChanged">
+			<NavigationView.MenuItems>
+				<NavigationViewItem x:Name="SyncNavItem" Content="Sync" Tag="sync">
+					<NavigationViewItem.Icon>
+						<FontIcon Glyph="&#xE895;" />
+					</NavigationViewItem.Icon>
+				</NavigationViewItem>
+				<NavigationViewItem x:Name="ProjectsNavItem" Tag="projects" HorizontalContentAlignment="Stretch"
+													AutomationProperties.Name="Projects">
+					<NavigationViewItem.Icon>
+						<FontIcon Glyph="&#xE8B7;" />
+					</NavigationViewItem.Icon>
+					<Grid>
+						<Grid.ColumnDefinitions>
+							<ColumnDefinition Width="*" />
+							<ColumnDefinition Width="Auto" />
+						</Grid.ColumnDefinitions>
+						<TextBlock Text="Projects" />
+						<TextBlock x:Name="ProjectsCountText" Grid.Column="1" Margin="12,0,12,0"
+								   Style="{StaticResource CaptionStyle}" VerticalAlignment="Center" />
+					</Grid>
+				</NavigationViewItem>
+			</NavigationView.MenuItems>
+
+			<Grid>
+				<!-- Sync page -->
+				<ScrollViewer x:Name="SyncPage" VerticalScrollBarVisibility="Auto">
+					<Grid Padding="40,28,40,48">
+						<StackPanel Spacing="4">
+							<TextBlock Text="Sync" Style="{StaticResource PageTitleStyle}" Margin="0,0,0,20" />
+
+							<Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+									BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+									BorderThickness="1" CornerRadius="8">
+								<StackPanel>
+									<Grid Padding="20" ColumnSpacing="16">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="Auto" />
+											<ColumnDefinition Width="*" />
+											<ColumnDefinition Width="Auto" />
+										</Grid.ColumnDefinitions>
+										<Grid Width="40" Height="40" VerticalAlignment="Center">
+											<Border x:Name="StatusNeutralIcon" CornerRadius="20" BorderThickness="1"
+													BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+													Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+												<FontIcon x:Name="StatusNeutralGlyph" Glyph="&#xE895;" FontSize="18"
+														  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+											</Border>
+											<Border x:Name="StatusSyncingIcon" CornerRadius="20" Visibility="Collapsed"
+													Background="{ThemeResource AccentFillColorDefaultBrush}">
+												<FontIcon Glyph="&#xE895;" FontSize="18"
+														  Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+											</Border>
+											<Border x:Name="StatusSuccessIcon" CornerRadius="20" Visibility="Collapsed"
+													Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}">
+												<FontIcon Glyph="&#xE73E;" FontSize="18"
+														  Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+											</Border>
+											<Border x:Name="StatusCautionIcon" CornerRadius="20" Visibility="Collapsed"
+													Background="{ThemeResource SystemFillColorCautionBackgroundBrush}">
+												<FontIcon x:Name="StatusCautionGlyph" Glyph="&#xE823;" FontSize="18"
+														  Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+											</Border>
+											<Border x:Name="StatusErrorIcon" CornerRadius="20" Visibility="Collapsed"
+													Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}">
+												<FontIcon Glyph="&#xE7BA;" FontSize="18"
+														  Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+											</Border>
+										</Grid>
+										<StackPanel Grid.Column="1" VerticalAlignment="Center">
+											<TextBlock x:Name="StatusTitleText" Text="Ready" FontSize="20" LineHeight="28" FontWeight="SemiBold" />
+											<TextBlock x:Name="StatusDescriptionText" TextWrapping="Wrap"
+													   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+										</StackPanel>
+										<Button x:Name="SyncNowButton" Grid.Column="2" Content="Sync now"
+												Style="{StaticResource AccentButtonStyle}" Padding="20,5"
+												VerticalAlignment="Center" Click="OnSyncNowClick" />
+									</Grid>
+									<ProgressBar x:Name="SyncProgressBar" IsIndeterminate="True" Visibility="Collapsed"
+												 Margin="76,0,20,20" />
+									<Grid Padding="20,12" ColumnSpacing="24"
+										  Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+										  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="*" />
+											<ColumnDefinition Width="*" />
+										</Grid.ColumnDefinitions>
+										<StackPanel>
+											<TextBlock Text="Repository" Style="{StaticResource CaptionStyle}" />
+											<TextBlock x:Name="RepositorySummaryText" Text="No remote set"
+													   FontFamily="Cascadia Mono, Consolas" FontSize="13"
+													   TextTrimming="CharacterEllipsis" />
+										</StackPanel>
+										<StackPanel Grid.Column="1">
+											<TextBlock Text="Local folder" Style="{StaticResource CaptionStyle}" />
+											<TextBlock x:Name="FolderSummaryText" Text="Not configured"
+													   FontFamily="Cascadia Mono, Consolas" FontSize="13"
+													   TextTrimming="CharacterEllipsis" />
+										</StackPanel>
+									</Grid>
+								</StackPanel>
+							</Border>
+
+							<TextBlock Text="Automatic sync" Style="{StaticResource SectionTitleStyle}" />
+							<Border Style="{StaticResource CardStyle}">
+								<Grid>
+									<Grid.ColumnDefinitions>
+										<ColumnDefinition Width="Auto" />
+										<ColumnDefinition Width="*" />
+										<ColumnDefinition Width="Auto" />
+									</Grid.ColumnDefinitions>
+									<FontIcon Glyph="&#xE895;" Style="{StaticResource CardIconStyle}" />
+									<StackPanel Grid.Column="1" VerticalAlignment="Center">
+										<TextBlock Text="Sync automatically after the chat tool closes" TextWrapping="Wrap" />
+										<TextBlock Text="Applies to Visual Studio and Claude Code. Sync now and per-project sync keep working when this is off."
+												   Style="{StaticResource CaptionStyle}" />
+									</StackPanel>
+									<ToggleSwitch x:Name="AutomaticSyncToggle" Grid.Column="2" MinWidth="0"
+												  VerticalAlignment="Center" Margin="16,0,0,0"
+												  Toggled="OnAutomaticSyncToggled" />
+								</Grid>
+							</Border>
+							<InfoBar x:Name="AutomaticSyncInfoBar" IsOpen="False" IsClosable="True" />
+
+							<TextBlock Text="Last sync" Style="{StaticResource SectionTitleStyle}" />
+							<Border Style="{StaticResource CardStyle}" MinHeight="0" Padding="16">
+								<TextBlock x:Name="LastRunText" TextWrapping="Wrap"
+										   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+										   Text="No sync has run yet in this session." />
+							</Border>
+						</StackPanel>
+					</Grid>
+				</ScrollViewer>
+
+				<!-- Projects page -->
+				<ScrollViewer x:Name="ProjectsPage" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+					<Grid Padding="40,28,40,48">
+						<StackPanel Spacing="4">
+							<StackPanel Orientation="Horizontal" Spacing="12">
+								<TextBlock Text="Projects on this PC" Style="{StaticResource PageTitleStyle}" />
+								<Button x:Name="RefreshProjectsButton" Style="{StaticResource SubtleButtonStyle}"
+										VerticalAlignment="Center" Click="OnRefreshProjectsClick">
+									<StackPanel Orientation="Horizontal" Spacing="8">
+										<FontIcon Glyph="&#xE72C;" FontSize="14" />
+										<TextBlock Text="Refresh" />
+									</StackPanel>
+								</Button>
+							</StackPanel>
+							<TextBlock Text="Projects are identified by their Git remote. Supported: Visual Studio (Copilot) and Claude Code; one project can use both."
+									   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,4,0,16" />
+							<InfoBar x:Name="ProjectInfoBar" IsOpen="False" IsClosable="True" />
+							<StackPanel x:Name="ProjectsPanel" Spacing="4" />
+
+							<Expander x:Name="AddProjectExpander" IsExpanded="False"
+									  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+								<Expander.Header>
+									<Grid MinHeight="44">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="32" />
+											<ColumnDefinition Width="*" />
+										</Grid.ColumnDefinitions>
+										<FontIcon Glyph="&#xE710;" FontSize="16" />
+										<TextBlock Grid.Column="1" Text="Add a project" Margin="16,0,0,0" VerticalAlignment="Center" />
+									</Grid>
+								</Expander.Header>
+								<StackPanel Spacing="12" Padding="48,4,0,4">
+									<RadioButtons x:Name="AddProviderRadioButtons" Header="Provider" MaxColumns="2"
+												  SelectedIndex="0" SelectionChanged="OnAddProviderChanged">
+										<x:String>Visual Studio (Copilot)</x:String>
+										<x:String>Claude Code</x:String>
+									</RadioButtons>
+
+									<StackPanel x:Name="VisualStudioAddPanel" Spacing="8">
+										<TextBlock Text="Choose a folder in the project's Git repository. The remote identifies it across PCs."
+												   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+										<TextBlock Text="Project folder" Margin="0,4,0,0" />
+										<Grid ColumnSpacing="8">
+											<Grid.ColumnDefinitions>
+												<ColumnDefinition Width="*" />
+												<ColumnDefinition Width="Auto" />
+											</Grid.ColumnDefinitions>
+											<TextBox x:Name="ProjectFolderTextBox" PlaceholderText="Folder inside the project's Git repository" />
+											<Button Grid.Column="1" Content="Browse for project…" Click="OnBrowseProjectClick" />
+										</Grid>
+										<Expander Header="Advanced options" IsExpanded="False"
+												  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+											<StackPanel Spacing="10">
+												<TextBox x:Name="ProjectNameTextBox" Header="Sync folder name (optional)"
+														 PlaceholderText="Defaults to a name derived from the remote" />
+												<TextBox x:Name="ProjectRemoteTextBox" Header="Remote override (optional)"
+														 PlaceholderText="Use when the folder has no origin remote" />
+											</StackPanel>
+										</Expander>
+										<Button x:Name="AddProjectButton" Content="Add project" Margin="0,8,0,0"
+												Style="{StaticResource AccentButtonStyle}" Click="OnAddProjectClick" />
+									</StackPanel>
+
+									<StackPanel x:Name="ClaudeAddPanel" Spacing="8" Visibility="Collapsed">
+										<TextBlock Text="Pick a project from your Claude Code projects folder. Only Git repository roots with a remote can be added; the same remote can also have Copilot chats. Close Claude Code completely (including node-hosted instances) first."
+												   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+										<Button x:Name="DiscoverClaudeButton" Content="Find Claude Code projects"
+												Click="OnDiscoverClaudeClick" />
+										<StackPanel x:Name="ClaudeCandidatePanel" Spacing="4" />
+									</StackPanel>
+								</StackPanel>
+							</Expander>
+
+							<TextBlock Text="Chats to restore on this PC" FontSize="20" LineHeight="28" FontWeight="SemiBold" Margin="0,32,0,4" />
+							<TextBlock Text="Uncheck Restore on this PC beside a project, then save, to exclude all its archived chats from restores here. Expand it to select individual chats instead. The Git clone, uploads, and existing local chats are unaffected."
+									   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+							<TextBlock Text="Claude Code restores currently require the same project path on both PCs. Chats with another or missing cwd are skipped."
+									   Style="{StaticResource CaptionStyle}" Margin="0,4,0,16" />
+							<StackPanel x:Name="SessionSelectionPanel" Spacing="4" />
+							<StackPanel Orientation="Horizontal" Spacing="12" Margin="0,12,0,0">
+								<Button x:Name="SaveSelectionButton" Content="Save chat selection"
+										Style="{StaticResource AccentButtonStyle}" Click="OnSaveSelectionClick" />
+								<TextBlock x:Name="SelectionHintText" Style="{StaticResource CaptionStyle}" VerticalAlignment="Center" />
+							</StackPanel>
+							<InfoBar x:Name="SelectionInfoBar" IsOpen="False" IsClosable="True" />
+						</StackPanel>
+					</Grid>
+				</ScrollViewer>
+
+				<!-- Settings page -->
+				<ScrollViewer x:Name="SettingsPage" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+					<Grid Padding="40,28,40,48">
+						<StackPanel Spacing="4">
+							<TextBlock Text="Settings" Style="{StaticResource PageTitleStyle}" Margin="0,0,0,20" />
+
+							<TextBlock Text="Sync repository" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,4" />
+							<Border Padding="16,12" CornerRadius="4" BorderThickness="1"
+									BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+									Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+								<StackPanel Orientation="Horizontal" Spacing="12">
+									<FontIcon Glyph="&#xE946;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+									<TextBlock Text="Use a dedicated private Git repository. Never point this at a client project folder."
+											   TextWrapping="Wrap" />
+								</StackPanel>
+							</Border>
+							<Border Style="{StaticResource CardStyle}">
+								<Grid ColumnSpacing="8">
+									<Grid.ColumnDefinitions>
+										<ColumnDefinition Width="Auto" />
+										<ColumnDefinition Width="*" />
+										<ColumnDefinition Width="340" />
+										<ColumnDefinition Width="Auto" />
+									</Grid.ColumnDefinitions>
+									<FontIcon Glyph="&#xE8B7;" Style="{StaticResource CardIconStyle}" Margin="0,0,8,0" />
+									<StackPanel Grid.Column="1" VerticalAlignment="Center">
+										<TextBlock Text="Local sync folder" />
+										<TextBlock Text="A local clone of your private sync repository." Style="{StaticResource CaptionStyle}" />
+									</StackPanel>
+									<TextBox x:Name="SyncFolderTextBox" Grid.Column="2" VerticalAlignment="Center"
+											 TextChanged="OnSyncFolderChanged" FontFamily="Cascadia Mono, Consolas"
+											 PlaceholderText="Choose an existing clone or a new folder" />
+									<Button Grid.Column="3" Content="Browse…" VerticalAlignment="Center" Click="OnBrowseFolderClick" />
+								</Grid>
+							</Border>
+							<Border Style="{StaticResource CardStyle}">
+								<Grid ColumnSpacing="8">
+									<Grid.ColumnDefinitions>
+										<ColumnDefinition Width="Auto" />
+										<ColumnDefinition Width="*" />
+										<ColumnDefinition Width="Auto" />
+									</Grid.ColumnDefinitions>
+									<FontIcon Glyph="&#xE71B;" Style="{StaticResource CardIconStyle}" Margin="0,0,8,0" />
+									<StackPanel Grid.Column="1" VerticalAlignment="Center">
+										<TextBlock Text="Git origin URL" />
+										<TextBlock Text="Optional. Chats are pushed here after each sync. Leave blank to keep the existing remote."
+												   Style="{StaticResource CaptionStyle}" />
+									</StackPanel>
+									<TextBox x:Name="RemoteTextBox" Grid.Column="2" Width="340" VerticalAlignment="Center"
+											 PlaceholderText="https://github.com/owner/repo" />
+								</Grid>
+							</Border>
+							<Border Style="{StaticResource CardStyle}">
+								<Grid ColumnSpacing="8">
+									<Grid.ColumnDefinitions>
+										<ColumnDefinition Width="Auto" />
+										<ColumnDefinition Width="*" />
+										<ColumnDefinition Width="Auto" />
+									</Grid.ColumnDefinitions>
+									<FontIcon Glyph="&#xE8F4;" Style="{StaticResource CardIconStyle}" Margin="0,0,8,0" />
+									<StackPanel Grid.Column="1" VerticalAlignment="Center">
+										<TextBlock Text="Initialize as a Git repository if needed" />
+										<TextBlock Text="Runs git init in the sync folder when it isn't a repository yet."
+												   Style="{StaticResource CaptionStyle}" />
+									</StackPanel>
+									<ToggleSwitch x:Name="InitializeToggle" Grid.Column="2" MinWidth="0" VerticalAlignment="Center" />
+								</Grid>
+							</Border>
+							<StackPanel Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
+								<Button x:Name="SaveSettingsButton" Content="Save repository settings"
+										Style="{StaticResource AccentButtonStyle}" Click="OnSaveSettingsClick" />
+								<ProgressRing x:Name="SettingsProgress" IsActive="False" Width="20" Height="20" />
+							</StackPanel>
+							<InfoBar x:Name="SettingsInfoBar" IsOpen="False" IsClosable="True" />
+
+							<TextBlock Text="Appearance" Style="{StaticResource SectionTitleStyle}" />
+							<Border Style="{StaticResource CardStyle}">
+								<Grid ColumnSpacing="8">
+									<Grid.ColumnDefinitions>
+										<ColumnDefinition Width="Auto" />
+										<ColumnDefinition Width="*" />
+										<ColumnDefinition Width="Auto" />
+									</Grid.ColumnDefinitions>
+									<FontIcon Glyph="&#xE790;" Style="{StaticResource CardIconStyle}" Margin="0,0,8,0" />
+									<StackPanel Grid.Column="1" VerticalAlignment="Center">
+										<TextBlock Text="App theme" />
+										<TextBlock Text="Saved on this PC." Style="{StaticResource CaptionStyle}" />
+									</StackPanel>
+									<ComboBox x:Name="ThemeComboBox" Grid.Column="2" Width="200" VerticalAlignment="Center"
+											  SelectionChanged="OnThemeSelectionChanged">
+										<ComboBoxItem Content="Use system setting" />
+										<ComboBoxItem Content="Light" />
+										<ComboBoxItem Content="Dark" />
+									</ComboBox>
+								</Grid>
+							</Border>
+							<InfoBar x:Name="ThemeInfoBar" IsOpen="False" IsClosable="True" />
+						</StackPanel>
+					</Grid>
+				</ScrollViewer>
+			</Grid>
+		</NavigationView>
+	</Grid>
 </Window>

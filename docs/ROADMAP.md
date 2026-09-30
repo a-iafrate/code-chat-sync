@@ -76,6 +76,8 @@ without a recorded repository still need validation.
 - [x] List of registered projects (add/remove on this PC), local path and
       last run; manual sync per project. The list and add form are collapsible,
       show Visual Studio (Copilot) explicitly, and the window sections are separated.
+- [x] Window redesigned after `docs/CodeChatSync Settings.html`: Sync, Projects,
+      and Settings pages in a left navigation pane, Windows 11 styling
 - [x] Toggle: automatic sync on VS close (per PC, enabled by default)
 - [ ] Conflicts section: "keep local / keep remote" choice
 - [ ] Sync log

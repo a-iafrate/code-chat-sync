@@ -261,9 +261,9 @@ shows failures in the window instead of treating them as success. No Git
 credentials are stored in the remote URL; the user's existing credential
 helper remains responsible for authentication. `themePreference` lives only in
 the per-PC local configuration and defaults to `System` for existing installs.
-Saving it updates the WinUI window immediately; `System` tracks the Windows
-appearance. The native tray menu and window chrome continue to use the Windows
-appearance rather than the window's selected content theme.
+Choosing it saves and updates the WinUI window immediately, including the
+custom title bar caption buttons; `System` tracks the Windows appearance. The
+native tray menu continues to use the Windows appearance.
 
 The window also lists sessions found in the cloned sync repository for each
 registered project. The user may restore every chat (including future ones)
@@ -291,8 +291,14 @@ its local registration; the shared mapping, synced chats and local chat files
 stay intact. The displayed last run is the modification time of this PC's
 baseline file. A per-project sync matches the normalized remote exactly so a
 similarly named project cannot be synced accidentally. The configuration
-window visually separates sync repository, automatic sync, registered projects,
-restore selection, and last-sync status. Registered projects have collapsed
+window follows the Windows 11 settings style (Mica backdrop, custom title bar,
+left `NavigationView`) and is split into three pages: **Sync** (status card with
+*Sync now*, repository/folder summary, automatic sync toggle, last run),
+**Projects** (registered projects, add form, restore selection), and
+**Settings** (sync repository, appearance). The automatic sync toggle and theme
+are saved as soon as they change; repository settings and restore selections
+keep explicit save buttons because they can fail or batch several edits.
+Registered projects have collapsed
 rows with provider, remote, folder, and actions shown on expansion; the add
 form is separate and its rarely used name/remote overrides are advanced options.
 Visual Studio and Claude Code have separate add forms and provider-labeled

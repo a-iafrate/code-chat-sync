@@ -13,6 +13,10 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+
+        // The default shuts the app down when the last window closes; this app lives
+        // in the tray and must keep running until Exit is chosen from its menu.
+        DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

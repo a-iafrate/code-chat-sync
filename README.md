@@ -41,31 +41,37 @@ settled. Its menu shows the current status and offers *Sync now*, a status
 window, *Start with Windows*, and *Exit*. It only interrupts you when a run
 needs attention, such as a conflict or a pull that could not be completed.
 
-Open the window from the tray to choose a **separate private sync folder** and
-optionally set its Git `origin` URL. Select an existing clone, or check
+The window opened from the tray has three pages in a left navigation pane:
+**Sync** (status, *Sync now*, repository and folder summary, automatic sync,
+last run), **Projects** (registered projects, adding projects, and chats to
+restore on this PC), and **Settings** (sync repository and appearance).
+
+Under *Settings*, choose a **separate private sync folder** and
+optionally set its Git `origin` URL.
 *Initialize as a Git repository if needed* to create one in a new folder.
 A blank URL leaves an existing remote unchanged. The window reports errors
 without saving a failed configuration change.
 
-Under *Projects on this PC*, expand *Add a project* and choose a folder inside
-a project's Git repository. The app detects its Git remote; if none is available,
+On the *Projects* page, expand *Add a project*, pick the *Visual Studio (Copilot)*
+provider, and choose a folder inside a project's Git repository.
 enter one under *Advanced options*. Registered projects are collapsed by default;
 expand one to see its provider, remote, local folder and last sync run, sync just
 that project, or remove its registration on this PC. To add Claude Code,
-expand *Add a Claude Code project* and select a project discovered from
+pick the *Claude Code* provider under *Add a project*, choose *Find Claude Code
+projects*, and select a project discovered from
 `%USERPROFILE%\.claude\projects` (or `$CLAUDE_CONFIG_DIR\projects`). Claude
 candidates need a local Git repository root with a remote; the same remote
 may have both providers, displayed separately. Removing a registration does
 **not** delete local or archived chats. `codechatsync add` remains available
 for Visual Studio in the CLI.
 
-Under *Automatic sync*, uncheck the option and save to stop syncing automatically
-after Visual Studio closes on this PC. It is enabled by default, including for
+On the *Sync* page, turn off *Automatic sync* to stop syncing automatically
+after the chat tools close on this PC; the change is saved immediately.
 existing installations. *Sync now* and per-project sync remain available.
 
-Under *Appearance*, choose *Use system setting*, *Light*, or *Dark* and save to
-change the window theme immediately on this PC. Existing installations follow
-the Windows setting by default; the native tray menu follows Windows independently.
+Under *Settings* > *Appearance*, choose *Use system setting*, *Light*, or *Dark*;
+the window theme changes and is saved immediately on this PC. Existing installations
+follow the Windows setting by default; the native tray menu follows Windows independently.
 
 Under *Chats to restore on this PC*, uncheck a provider's collapsed project
 and save to prevent all its archived chats from being restored on this machine.

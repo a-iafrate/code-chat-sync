@@ -3,786 +3,1125 @@ using CodeChatSync.Core;
 using CodeChatSync.Git;
 using CodeChatSync.Providers.Claude;
 using CodeChatSync.Providers.VisualStudio;
+using Microsoft.UI;
+using Microsoft.UI.Text;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Windows.Storage.Pickers;
 
 namespace CodeChatSync.App;
 
 public sealed partial class MainWindow : Window
 {
-    private readonly SyncHost _syncHost;
-    private string? _loadedFolder;
-    private bool _loadingSettings;
-    private readonly List<(string ProviderId, ProjectIdentity Project, CheckBox Restore, CheckBox All, List<(string Id, CheckBox Selected)> Sessions)> _sessionGroups = [];
-
-    public MainWindow(SyncHost syncHost)
-    {
-        _syncHost = syncHost ?? throw new ArgumentNullException(nameof(syncHost));
-
-        InitializeComponent();
-
-        if (File.Exists(AppIcons.AppIconPath))
-        {
-            AppWindow.SetIcon(AppIcons.AppIconPath);
-        }
-
-        _syncHost.SyncCompleted += OnSyncCompleted;
-        _syncHost.ProviderRunningChanged += OnProviderRunningChanged;
-        Closed += OnClosed;
-
-        UpdateProviderStatus(_syncHost.IsProviderRunning);
-
-        if (_syncHost.LastOutcome is { } lastOutcome)
-        {
-            ShowOutcome(lastOutcome);
-        }
-
-        _ = LoadSettingsAsync();
-    }
-
-    private async Task<bool> LoadSettingsAsync()
-    {
-        SaveSettingsButton.IsEnabled = false;
-        SaveAutomaticSyncButton.IsEnabled = false;
-        SaveThemeButton.IsEnabled = false;
-        SaveSelectionButton.IsEnabled = false;
-        ProjectsPanel.Children.Clear();
-        _loadingSettings = true;
-        SessionSelectionPanel.Children.Clear();
-        _sessionGroups.Clear();
-        try
-        {
-            var config = LocalConfig.Load();
-            ThemeComboBox.SelectedIndex = config.ThemePreference switch
-            {
-                ThemePreference.System => 0,
-                ThemePreference.Light => 1,
-                ThemePreference.Dark => 2,
-                _ => throw new InvalidDataException($"Unknown window theme: {config.ThemePreference}")
-            };
-            ApplyTheme(config.ThemePreference);
-            AutomaticSyncCheckBox.IsChecked = config.AutomaticSyncOnProviderClose;
-            _loadedFolder = config.SyncRootPath;
-            SyncFolderTextBox.Text = config.SyncRootPath ?? string.Empty;
-            RemoteTextBox.Text = string.Empty;
-            if (config.SyncRootPath is not { Length: > 0 } folder)
-            {
-                ShowSettingsMessage("Choose a folder for your private sync repository.", InfoBarSeverity.Informational);
-                return true;
-            }
-
-            if (!Directory.Exists(folder))
-            {
-                ShowSettingsMessage("The configured sync folder is missing. Choose an existing folder or initialize it.", InfoBarSeverity.Warning);
-                return true;
-            }
-
-            var repository = new SyncRepository(folder);
-            var status = await Task.Run(() => repository.GetStatus());
-            if (status.IsGitRepository)
-            {
-                RemoteTextBox.Text = await Task.Run(repository.GetOriginRemoteUrl) ?? string.Empty;
-            }
-            else
-            {
-                ShowSettingsMessage("This folder is not a Git repository. Check Initialize to add an origin remote.", InfoBarSeverity.Warning);
-            }
-
-            await LoadSessionsAsync(config, folder);
-            return true;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or ArgumentException or GitCommandException or NotSupportedException)
-        {
-            ShowSettingsMessage($"Could not load settings: {exception.Message}", InfoBarSeverity.Error);
-            return false;
-        }
-        finally
-        {
-            _loadingSettings = false;
-            SaveSettingsButton.IsEnabled = true;
-            SaveAutomaticSyncButton.IsEnabled = true;
-            SaveThemeButton.IsEnabled = true;
-        }
-    }
-
-    private void OnSyncFolderChanged(object sender, TextChangedEventArgs e)
-    {
-        if (!_loadingSettings && _loadedFolder is not null
-            && !string.Equals(SyncFolderTextBox.Text, _loadedFolder, StringComparison.OrdinalIgnoreCase))
-        {
-            RemoteTextBox.Text = string.Empty;
-        }
-    }
-
-    private async void OnBrowseFolderClick(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (await PickFolderAsync() is { } path)
-            {
-                SyncFolderTextBox.Text = path;
-            }
-        }
-        catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException
-            or UnauthorizedAccessException or InvalidOperationException)
-        {
-            ShowSettingsMessage($"Could not choose a folder: {exception.Message}", InfoBarSeverity.Error);
-        }
-    }
-
-    private async void OnBrowseProjectClick(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (await PickFolderAsync() is { } path)
-            {
-                ProjectFolderTextBox.Text = path;
-            }
-        }
-        catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException
-            or UnauthorizedAccessException or InvalidOperationException)
-        {
-            ShowProjectMessage($"Could not choose a project folder: {exception.Message}", InfoBarSeverity.Error);
-        }
-    }
-
-    private async Task<string?> PickFolderAsync()
-    {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-        return (await picker.PickSingleFolderAsync())?.Path;
-    }
-
-    private async void OnSaveSettingsClick(object sender, RoutedEventArgs e)
-    {
-        var folder = SyncFolderTextBox.Text;
-        if (string.IsNullOrWhiteSpace(folder))
-        {
-            ShowSettingsMessage("Choose a sync folder before saving.", InfoBarSeverity.Error);
-            return;
-        }
-
-        SaveSettingsButton.IsEnabled = false;
-        SettingsProgress.IsActive = true;
-        try
-        {
-            var saved = await _syncHost.SaveSettingsAsync(folder, RemoteTextBox.Text, InitializeCheckBox.IsChecked == true);
-            if (!saved)
-            {
-                ShowSettingsMessage("A sync is in progress. Try saving again when it finishes.", InfoBarSeverity.Warning);
-                return;
-            }
-
-            InitializeCheckBox.IsChecked = false;
-            if (await LoadSettingsAsync())
-            {
-                ShowSettingsMessage("Settings saved. Sync will use this folder on the next run.", InfoBarSeverity.Success);
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or ArgumentException or GitCommandException or NotSupportedException)
-        {
-            ShowSettingsMessage($"Could not save settings: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            SaveSettingsButton.IsEnabled = true;
-            SettingsProgress.IsActive = false;
-        }
-    }
-
-    private async void OnSaveAutomaticSyncClick(object sender, RoutedEventArgs e)
-    {
-        SaveAutomaticSyncButton.IsEnabled = false;
-        try
-        {
-            var enabled = AutomaticSyncCheckBox.IsChecked == true;
-            if (!await _syncHost.SaveAutomaticSyncAsync(enabled))
-            {
-                ShowAutomaticSyncMessage("A sync is in progress. Try saving again when it finishes.", InfoBarSeverity.Warning);
-                return;
-            }
-
-            ShowAutomaticSyncMessage(enabled
-                ? "Automatic sync after Visual Studio closes is enabled on this PC."
-                : "Automatic sync is disabled on this PC. Manual sync remains available.",
-                InfoBarSeverity.Success);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or ArgumentException or NotSupportedException)
-        {
-            ShowAutomaticSyncMessage($"Could not save automatic sync preference: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            SaveAutomaticSyncButton.IsEnabled = true;
-        }
-    }
-
-    private void ShowAutomaticSyncMessage(string message, InfoBarSeverity severity)
-    {
-        AutomaticSyncInfoBar.Message = message;
-        AutomaticSyncInfoBar.Severity = severity;
-        AutomaticSyncInfoBar.IsOpen = true;
-    }
-
-    private async void OnSaveThemeClick(object sender, RoutedEventArgs e)
-    {
-        if (ThemeComboBox.SelectedIndex is < 0 or > 2)
-        {
-            ShowThemeMessage("Choose a window theme before saving.", InfoBarSeverity.Error);
-            return;
-        }
-
-        var preference = ThemeComboBox.SelectedIndex switch
-        {
-            0 => ThemePreference.System,
-            1 => ThemePreference.Light,
-            2 => ThemePreference.Dark,
-            _ => throw new InvalidOperationException("Unknown window theme selection.")
-        };
-
-        SaveThemeButton.IsEnabled = false;
-        try
-        {
-            if (!await _syncHost.SaveThemePreferenceAsync(preference))
-            {
-                ShowThemeMessage("A sync is in progress. Try saving again when it finishes.", InfoBarSeverity.Warning);
-                return;
-            }
-
-            ApplyTheme(preference);
-            ShowThemeMessage("Window theme saved on this PC.", InfoBarSeverity.Success);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or ArgumentException or NotSupportedException)
-        {
-            ShowThemeMessage($"Could not save window theme: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            SaveThemeButton.IsEnabled = true;
-        }
-    }
-
-    private void ApplyTheme(ThemePreference preference) =>
-        WindowRoot.RequestedTheme = preference switch
-        {
-            ThemePreference.System => ElementTheme.Default,
-            ThemePreference.Light => ElementTheme.Light,
-            ThemePreference.Dark => ElementTheme.Dark,
-            _ => throw new InvalidDataException($"Unknown window theme: {preference}")
-        };
-
-    private void ShowThemeMessage(string message, InfoBarSeverity severity)
-    {
-        ThemeInfoBar.Message = message;
-        ThemeInfoBar.Severity = severity;
-        ThemeInfoBar.IsOpen = true;
-    }
-
-    private async void OnRefreshProjectsClick(object sender, RoutedEventArgs e)
-    {
-        await LoadSettingsAsync();
-    }
-
-    private async void OnAddProjectClick(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(ProjectFolderTextBox.Text))
-        {
-            ShowProjectMessage("Choose a project folder before adding it.", InfoBarSeverity.Error);
-            return;
-        }
-
-        AddProjectButton.IsEnabled = false;
-        try
-        {
-            var added = await _syncHost.AddProjectAsync(ProjectFolderTextBox.Text,
-                ProjectNameTextBox.Text, ProjectRemoteTextBox.Text);
-            if (!added)
-            {
-                ShowProjectMessage("A sync is in progress. Try adding the project again when it finishes.", InfoBarSeverity.Warning);
-                return;
-            }
-
-            ProjectFolderTextBox.Text = string.Empty;
-            ProjectNameTextBox.Text = string.Empty;
-            ProjectRemoteTextBox.Text = string.Empty;
-            if (await LoadSettingsAsync())
-            {
-                AddProjectExpander.IsExpanded = false;
-                ShowProjectMessage("Project registered on this PC. Sync now to archive its chats.", InfoBarSeverity.Success);
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
-        {
-            ShowProjectMessage($"Could not add project: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            AddProjectButton.IsEnabled = true;
-        }
-    }
-
-    private async void OnDiscoverClaudeClick(object sender, RoutedEventArgs e)
-    {
-        DiscoverClaudeButton.IsEnabled = false;
-        ClaudeCandidatePanel.Children.Clear();
-        try
-        {
-            var candidates = await Task.Run(() => ClaudeProjectDiscovery.DiscoverCandidates(new ProcessGuard())
-                .Select(candidate =>
-                {
-                    var root = candidate.LocalPathExists ? GitRemoteReader.FindRepositoryRoot(candidate.LocalPath) : null;
-                    var remote = root is not null && string.Equals(root, candidate.LocalPath, StringComparison.OrdinalIgnoreCase)
-                        ? GitRemoteReader.FindPrimaryRemoteUrl(root) : null;
-                    var eligible = candidate.LocalPathExists && !candidate.HasStorageCollision
-                        && candidate.StorageFolderName is not null
-                        && candidate.Sessions.Any(session => session.IsInStorageFolder)
-                        && !string.IsNullOrWhiteSpace(remote)
-                        && ProjectIdentity.TryFromRemote(remote, out _);
-                    return (Candidate: candidate, Remote: remote, Eligible: eligible);
-                }).ToArray());
-
-            if (candidates.Length == 0)
-            {
-                ClaudeCandidatePanel.Children.Add(new TextBlock { Text = "No Claude Code sessions with recorded project folders were found." });
-            }
-
-            foreach (var (candidate, remote, eligible) in candidates)
-            {
-                var row = new StackPanel { Spacing = 4, Padding = new Thickness(8) };
-                row.Children.Add(new TextBlock { Text = candidate.LocalPath, TextWrapping = TextWrapping.Wrap });
-                row.Children.Add(new TextBlock
-                {
-                    Text = eligible
-                        ? $"Git remote: {remote} · {candidate.Sessions.Count(session => session.IsInStorageFolder)} transcripts"
-                        : "Unavailable: folder missing, unsafe storage mapping, or no Git remote at the project root.",
-                    TextWrapping = TextWrapping.Wrap, Opacity = 0.7
-                });
-                if (eligible)
-                {
-                    var add = new Button { Content = "Add Claude Code", HorizontalAlignment = HorizontalAlignment.Left };
-                    add.Click += async (_, _) => await AddClaudeProjectAsync(candidate.LocalPath, add);
-                    row.Children.Add(add);
-                }
-
-                ClaudeCandidatePanel.Children.Add(row);
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or InvalidDataException or InvalidOperationException or ArgumentException or NotSupportedException)
-        {
-            ShowProjectMessage($"Could not discover Claude Code projects: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            DiscoverClaudeButton.IsEnabled = true;
-        }
-    }
-
-    private async Task AddClaudeProjectAsync(string path, Button button)
-    {
-        button.IsEnabled = false;
-        try
-        {
-            if (!await _syncHost.AddClaudeProjectAsync(path))
-            {
-                ShowProjectMessage("A sync is in progress. Try adding the Claude Code project again when it finishes.", InfoBarSeverity.Warning);
-                return;
-            }
-
-            ClaudeCandidatePanel.Children.Clear();
-            if (await LoadSettingsAsync())
-            {
-                ShowProjectMessage("Claude Code enabled for this Git project on this PC.", InfoBarSeverity.Success);
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or InvalidDataException or InvalidOperationException or ArgumentException or NotSupportedException)
-        {
-            ShowProjectMessage($"Could not add Claude Code project: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            button.IsEnabled = true;
-        }
-    }
-
-    private async Task RemoveProjectAsync(ProjectIdentity identity, Button button)
-    {
-        var confirm = new ContentDialog
-        {
-            XamlRoot = Content.XamlRoot,
-            Title = "Remove project from this PC?",
-            Content = $"{identity.NormalizedRemote} will no longer sync on this PC. Archived chats in the private repository and local chat files will not be deleted.",
-            PrimaryButtonText = "Remove",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close
-        };
-        if (await confirm.ShowAsync() != ContentDialogResult.Primary)
-        {
-            return;
-        }
-
-        button.IsEnabled = false;
-        try
-        {
-            if (!await _syncHost.RemoveProjectAsync(identity))
-            {
-                ShowProjectMessage("A sync is in progress. Try removing the project again when it finishes.", InfoBarSeverity.Warning);
-                return;
-            }
-
-            if (await LoadSettingsAsync())
-            {
-                ShowProjectMessage("Project removed from this PC. Archived chats remain in the private repository.", InfoBarSeverity.Success);
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
-        {
-            ShowProjectMessage($"Could not remove project: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            button.IsEnabled = true;
-        }
-    }
-
-    private async Task SyncProjectAsync(ProjectIdentity identity, Button button)
-    {
-        button.IsEnabled = false;
-        try
-        {
-            var outcome = await _syncHost.SyncProjectAsync(identity);
-            ShowOutcome(outcome);
-            if (outcome.NeedsAttention || outcome.Status == SyncOutcomeStatus.AlreadyRunning)
-            {
-                ShowProjectMessage(outcome.Summary, InfoBarSeverity.Warning);
-            }
-            else if (await LoadSettingsAsync())
-            {
-                ShowProjectMessage(outcome.Summary, InfoBarSeverity.Success);
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
-        {
-            ShowProjectMessage($"Could not sync project: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            button.IsEnabled = true;
-        }
-    }
-
-    private void ShowProjectMessage(string message, InfoBarSeverity severity)
-    {
-        ProjectInfoBar.Message = message;
-        ProjectInfoBar.Severity = severity;
-        ProjectInfoBar.IsOpen = true;
-    }
-
-    private async Task LoadSessionsAsync(LocalConfig config, string syncRoot)
-    {
-        var groups = await Task.Run(() =>
-        {
-            var shared = SharedConfig.Load(syncRoot);
-            var results = new List<(string ProviderId, ProjectIdentity Project, string Name, string LocalPath, DateTime? LastRunUtc, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> Sessions)>();
-            foreach (var entry in config.Projects)
-            {
-                if (!ProjectIdentity.TryFromRemote(entry.Remote, out var identity) || identity is null)
-                {
-                    throw new InvalidDataException($"Invalid registered project remote: {entry.Remote}");
-                }
-
-                var name = shared.Find(identity)?.Name ?? identity.Slug;
-                if (name is "." or ".." || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-                    || name.Contains('/') || name.Contains('\\'))
-                {
-                    throw new InvalidDataException($"Invalid shared project folder name: {name}");
-                }
-
-                foreach (var providerId in LocalConfig.GetEnabledProviderIds(entry))
-                {
-                    var projectRoot = Path.Combine(syncRoot, providerId, name);
-                    IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> sessions = providerId switch
-                    {
-                        "visualstudio" => CopilotChatDiscovery.DiscoverSessions(projectRoot)
-                            .Select(session => (Id: Path.GetFileName(session.SessionDirectory), session.Name, session.UpdatedAt))
-                            .ToArray(),
-                        "claudecode" => ClaudeArchivedChatDiscovery.Discover(projectRoot)
-                            .Select(session => (session.Id, session.Title, (DateTimeOffset?)new DateTimeOffset(session.UpdatedAt)))
-                            .ToArray(),
-                        _ => throw new InvalidDataException($"Unsupported registered provider: {providerId}")
-                    };
-                    var statePath = new SyncWorkspace(config, shared).GetStatePath(providerId, new ProjectInfo
-                    {
-                        Identity = identity, LocalPath = entry.LocalPath, DisplayName = name
-                    });
-                    DateTime? lastRun = File.Exists(statePath) ? File.GetLastWriteTimeUtc(statePath) : null;
-                    results.Add((providerId, identity, name, entry.LocalPath, lastRun,
-                        config.FindRestoreSelection(providerId, identity), sessions));
-                }
-            }
-
-            return results;
-        });
-
-        if (groups.Count == 0)
-        {
-            ProjectsPanel.Children.Add(new TextBlock { Text = "No projects registered yet. Expand Add a project below to get started." });
-            SessionSelectionPanel.Children.Add(new TextBlock { Text = "Add a project above to choose its chats." });
-            return;
-        }
-
-        foreach (var group in groups)
-        {
-            var providerName = group.ProviderId == "claudecode" ? "Claude Code" : "Visual Studio (Copilot)";
-            var projectDetails = new StackPanel { Spacing = 8, Padding = new Thickness(8) };
-            projectDetails.Children.Add(new TextBlock { Text = $"Provider: {providerName}" });
-            projectDetails.Children.Add(new TextBlock { Text = $"Git remote: {group.Project.NormalizedRemote}", TextWrapping = TextWrapping.Wrap });
-            projectDetails.Children.Add(new TextBlock { Text = $"Local folder: {group.LocalPath}", TextWrapping = TextWrapping.Wrap });
-            projectDetails.Children.Add(new TextBlock { Text = group.LastRunUtc is { } time
-                ? $"Last local sync run: {time.ToLocalTime():g}"
-                : "No local sync run yet." });
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            var sync = new Button { Content = "Sync this project" };
-            sync.Click += async (_, _) => await SyncProjectAsync(group.Project, sync);
-            actions.Children.Add(sync);
-            var remove = new Button { Content = "Remove from this PC" };
-            remove.Click += async (_, _) => await RemoveProjectAsync(group.Project, remove);
-            actions.Children.Add(remove);
-            projectDetails.Children.Add(actions);
-            ProjectsPanel.Children.Add(new Expander
-            {
-                Header = $"{group.Name} · {providerName} · {group.Sessions.Count} archived chats",
-                Content = projectDetails,
-                IsExpanded = false
-            });
-
-            var container = new StackPanel { Spacing = 8 };
-            var restore = new CheckBox
-            {
-                Content = "Restore on this PC",
-                IsChecked = group.Selection is null || group.Selection.SessionIds.Count > 0,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            ToolTipService.SetToolTip(restore, $"Controls {providerName} restores on this PC; archived chats remain in Git.");
-            var all = new CheckBox { Content = "Restore all chats, including future ones", IsChecked = group.Selection is null };
-            container.Children.Add(all);
-            var selectionSummary = new TextBlock { Opacity = 0.7 };
-            container.Children.Add(selectionSummary);
-            var expander = new Expander { Content = container, IsExpanded = false };
-            var projectHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            projectHeader.Children.Add(restore);
-            projectHeader.Children.Add(expander);
-            var sessionPanel = new StackPanel { Spacing = 8, Margin = new Microsoft.UI.Xaml.Thickness(20, 0, 0, 0) };
-            var search = new TextBox { PlaceholderText = "Search by title or session ID", Header = "Find chats" };
-            sessionPanel.Children.Add(search);
-            var items = new List<(string Id, CheckBox Selected)>();
-            var searchable = new List<(string Id, string Title, CheckBox Selected)>();
-            foreach (var session in group.Sessions)
-            {
-                var title = FormatChatTitle(session.Name, session.Id);
-                var label = new StackPanel { Spacing = 2 };
-                label.Children.Add(new TextBlock
-                {
-                    Text = title, TextTrimming = TextTrimming.CharacterEllipsis,
-                    TextWrapping = TextWrapping.NoWrap, MaxWidth = 430
-                });
-                var shortId = session.Id.Length > 8 ? session.Id[..8] : session.Id;
-                label.Children.Add(new TextBlock
-                {
-                    Text = session.UpdatedAt is { } updated
-                        ? $"Updated {updated.ToLocalTime():g} · ID {shortId}"
-                        : $"ID {shortId}",
-                    Opacity = 0.65, FontSize = 12
-                });
-                var selected = new CheckBox
-                {
-                    Content = label,
-                    IsChecked = group.Selection?.SessionIds.Contains(session.Id, StringComparer.OrdinalIgnoreCase) ?? true
-                };
-                ToolTipService.SetToolTip(selected, $"Session ID: {session.Id}");
-                selected.Checked += (_, _) => UpdateSelectionSummary();
-                selected.Unchecked += (_, _) => UpdateSelectionSummary();
-                sessionPanel.Children.Add(selected);
-                items.Add((session.Id, selected));
-                searchable.Add((session.Id, session.Name ?? title, selected));
-            }
-
-            search.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-            if (items.Count == 0)
-            {
-                sessionPanel.Children.Add(new TextBlock { Text = "No synced chats for this project yet." });
-            }
-
-            var noMatches = new TextBlock { Text = "No chats match this search.", Visibility = Visibility.Collapsed };
-            sessionPanel.Children.Add(noMatches);
-            container.Children.Add(sessionPanel);
-
-            void UpdateSelectionSummary()
-            {
-                var enabled = restore.IsChecked == true;
-                var restoreAll = all.IsChecked == true;
-                var selectedCount = items.Count(item => item.Selected.IsChecked == true);
-                all.IsEnabled = enabled;
-                sessionPanel.Visibility = enabled && !restoreAll ? Visibility.Visible : Visibility.Collapsed;
-                expander.Header = !enabled
-                    ? $"{group.Name} · {providerName} · restore off"
-                    : restoreAll
-                        ? $"{group.Name} · {providerName} · {items.Count} chats · restore all"
-                        : $"{group.Name} · {providerName} · {selectedCount}/{items.Count} chats selected";
-                selectionSummary.Text = !enabled
-                    ? $"No {providerName} chats from this project will be restored on this PC. Archived and existing local chats remain unchanged."
-                    : restoreAll
-                        ? $"All chats selected ({items.Count} currently archived)."
-                        : $"{selectedCount} of {items.Count} archived chats selected. Future chats will not be restored automatically.";
-            }
-
-            restore.Checked += (_, _) =>
-            {
-                if (all.IsChecked != true && items.All(item => item.Selected.IsChecked != true))
-                {
-                    all.IsChecked = true;
-                }
-
-                UpdateSelectionSummary();
-            };
-            restore.Unchecked += (_, _) => UpdateSelectionSummary();
-            all.Checked += (_, _) => UpdateSelectionSummary();
-            all.Unchecked += (_, _) => UpdateSelectionSummary();
-            search.TextChanged += (_, _) =>
-            {
-                var query = search.Text.Trim();
-                var matches = 0;
-                foreach (var (id, title, selected) in searchable)
-                {
-                    var visible = title.Contains(query, StringComparison.OrdinalIgnoreCase)
-                        || id.Contains(query, StringComparison.OrdinalIgnoreCase);
-                    selected.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                    if (visible)
-                    {
-                        matches++;
-                    }
-                }
-
-                noMatches.Visibility = items.Count > 0 && matches == 0 ? Visibility.Visible : Visibility.Collapsed;
-            };
-            UpdateSelectionSummary();
-            SessionSelectionPanel.Children.Add(projectHeader);
-            _sessionGroups.Add((group.ProviderId, group.Project, restore, all, items));
-        }
-
-        SaveSelectionButton.IsEnabled = true;
-    }
-
-    private static string FormatChatTitle(string? name, string id)
-    {
-        if (string.IsNullOrWhiteSpace(name) || string.Equals(name.Trim(), id, StringComparison.OrdinalIgnoreCase))
-        {
-            return "Untitled chat";
-        }
-
-        var title = string.Join(" ", name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        if (title.StartsWith("The following code changes are from one or more source files in a diff format.", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Untitled chat";
-        }
-
-        return title.Length > 90 ? title[..87] + "..." : title;
-    }
-
-    private async void OnSaveSelectionClick(object sender, RoutedEventArgs e)
-    {
-        var selections = _sessionGroups.Select(group =>
-            (group.ProviderId, group.Project, SessionIds: group.Restore.IsChecked != true
-                ? (IReadOnlyList<string>)[]
-                : group.All.IsChecked == true
-                    ? null
-                    : group.Sessions.Where(session => session.Selected.IsChecked == true)
-                        .Select(session => session.Id).ToArray())).ToArray();
-
-        SaveSelectionButton.IsEnabled = false;
-        try
-        {
-            if (!await _syncHost.SaveRestoreSelectionsAsync(selections))
-            {
-                ShowSelectionMessage("A sync is in progress. Try again when it finishes.", InfoBarSeverity.Warning);
-                return;
-            }
-
-            ShowSelectionMessage("Saved for this PC. Unselected chats remain in the Git repository; existing local chats are not deleted.", InfoBarSeverity.Success);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or ArgumentException or InvalidDataException or NotSupportedException)
-        {
-            ShowSelectionMessage($"Could not save chat selection: {exception.Message}", InfoBarSeverity.Error);
-        }
-        finally
-        {
-            SaveSelectionButton.IsEnabled = true;
-        }
-    }
-
-    private void ShowSelectionMessage(string message, InfoBarSeverity severity)
-    {
-        SelectionInfoBar.Message = message;
-        SelectionInfoBar.Severity = severity;
-        SelectionInfoBar.IsOpen = true;
-    }
-
-    private void ShowSettingsMessage(string message, InfoBarSeverity severity)
-    {
-        SettingsInfoBar.Message = message;
-        SettingsInfoBar.Severity = severity;
-        SettingsInfoBar.IsOpen = true;
-    }
-
-    private async void OnSyncNowClick(object sender, RoutedEventArgs e)
-    {
-        SyncNowButton.IsEnabled = false;
-        SyncProgress.IsActive = true;
-
-        try
-        {
-            ShowOutcome(await _syncHost.SyncNowAsync());
-        }
-        finally
-        {
-            SyncProgress.IsActive = false;
-            SyncNowButton.IsEnabled = true;
-        }
-    }
-
-    private void OnSyncCompleted(object? sender, SyncOutcome outcome) =>
-        DispatcherQueue.TryEnqueue(() => ShowOutcome(outcome));
-
-    private void OnProviderRunningChanged(object? sender, bool isRunning) =>
-        DispatcherQueue.TryEnqueue(() => UpdateProviderStatus(isRunning));
-
-    private void UpdateProviderStatus(bool isProviderRunning) =>
-        ProviderStatusText.Text = isProviderRunning
-            ? "Visual Studio is open. Chats will sync once it closes."
-            : "Visual Studio is closed. Watching for new chats.";
-
-    private void ShowOutcome(SyncOutcome outcome) =>
-        LastRunText.Text = $"{DateTime.Now:t} - {outcome.Status}: {outcome.Summary}";
-
-    /// <summary>
-    /// The app lives in the tray, so closing this window only detaches it from the
-    /// sync host rather than stopping the watch.
-    /// </summary>
-    private void OnClosed(object sender, WindowEventArgs args)
-    {
-        _syncHost.SyncCompleted -= OnSyncCompleted;
-        _syncHost.ProviderRunningChanged -= OnProviderRunningChanged;
-        Closed -= OnClosed;
-    }
+	private const string VisualStudioProviderId = "visualstudio";
+	private const string ClaudeProviderId = "claudecode";
+
+	private readonly SyncHost _syncHost;
+	private string? _loadedFolder;
+	private string? _configuredFolder;
+	private bool _loadingSettings;
+	private bool _manualSyncRunning;
+	private DateTime? _lastOutcomeTime;
+	private readonly List<(string ProviderId, ProjectIdentity Project, CheckBox Restore, CheckBox All, List<(string Id, CheckBox Selected)> Sessions)> _sessionGroups = [];
+
+	public MainWindow(SyncHost syncHost)
+	{
+		_syncHost = syncHost ?? throw new ArgumentNullException(nameof(syncHost));
+
+		InitializeComponent();
+
+		ExtendsContentIntoTitleBar = true;
+		SetTitleBar(AppTitleBar);
+		// The built-in Settings item follows the OS language; keep the UI consistently in English.
+		NavView.Loaded += (_, _) =>
+		{
+			if (NavView.SettingsItem is NavigationViewItem settingsItem)
+			{
+				settingsItem.Content = "Settings";
+			}
+		};
+		if (File.Exists(AppIcons.AppIconPath))
+		{
+			AppWindow.SetIcon(AppIcons.AppIconPath);
+		}
+
+		_syncHost.SyncCompleted += OnSyncCompleted;
+		_syncHost.ProviderRunningChanged += OnProviderRunningChanged;
+		Closed += OnClosed;
+
+		NavView.SelectedItem = SyncNavItem;
+		if (_syncHost.LastOutcome is { } lastOutcome)
+		{
+			ShowOutcome(lastOutcome);
+		}
+
+		UpdateStatus();
+		_ = LoadSettingsAsync();
+	}
+
+	private void OnNavigationSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+	{
+		var page = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag as string;
+		SyncPage.Visibility = page == "sync" ? Visibility.Visible : Visibility.Collapsed;
+		ProjectsPage.Visibility = page == "projects" ? Visibility.Visible : Visibility.Collapsed;
+		SettingsPage.Visibility = page == "settings" ? Visibility.Visible : Visibility.Collapsed;
+	}
+
+	private async Task<bool> LoadSettingsAsync()
+	{
+		SaveSettingsButton.IsEnabled = false;
+		SaveSelectionButton.IsEnabled = false;
+		SelectionHintText.Text = string.Empty;
+		ProjectsPanel.Children.Clear();
+		_loadingSettings = true;
+		SessionSelectionPanel.Children.Clear();
+		_sessionGroups.Clear();
+		try
+		{
+			var config = LocalConfig.Load();
+			ThemeComboBox.SelectedIndex = config.ThemePreference switch
+			{
+				ThemePreference.System => 0,
+				ThemePreference.Light => 1,
+				ThemePreference.Dark => 2,
+				_ => throw new InvalidDataException($"Unknown window theme: {config.ThemePreference}")
+			};
+			ApplyTheme(config.ThemePreference);
+			AutomaticSyncToggle.IsOn = config.AutomaticSyncOnProviderClose;
+			_loadedFolder = config.SyncRootPath;
+			_configuredFolder = config.SyncRootPath;
+			SyncFolderTextBox.Text = config.SyncRootPath ?? string.Empty;
+			FolderSummaryText.Text = config.SyncRootPath ?? "Not configured";
+			RemoteTextBox.Text = string.Empty;
+			RepositorySummaryText.Text = "No remote set";
+			ProjectsCountText.Text = config.Projects.Count > 0 ? config.Projects.Count.ToString() : string.Empty;
+			if (config.SyncRootPath is not { Length: > 0 } folder)
+			{
+				ShowSettingsMessage("Choose a folder for your private sync repository.", InfoBarSeverity.Informational);
+				ShowEmptyProjects();
+				return true;
+			}
+
+			if (!Directory.Exists(folder))
+			{
+				ShowSettingsMessage("The configured sync folder is missing. Choose an existing folder or initialize it.", InfoBarSeverity.Warning);
+				ShowEmptyProjects();
+				return true;
+			}
+
+			var repository = new SyncRepository(folder);
+			var status = await Task.Run(() => repository.GetStatus());
+			if (status.IsGitRepository)
+			{
+				var origin = await Task.Run(repository.GetOriginRemoteUrl) ?? string.Empty;
+				RemoteTextBox.Text = origin;
+				if (origin.Length > 0)
+				{
+					RepositorySummaryText.Text = ShortenRemote(origin);
+				}
+			}
+			else
+			{
+				ShowSettingsMessage("This folder is not a Git repository. Turn on Initialize to add an origin remote.", InfoBarSeverity.Warning);
+			}
+
+			await LoadSessionsAsync(config, folder);
+			return true;
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or ArgumentException or GitCommandException or NotSupportedException or InvalidDataException)
+		{
+			ShowSettingsMessage($"Could not load settings: {exception.Message}", InfoBarSeverity.Error);
+			return false;
+		}
+		finally
+		{
+			_loadingSettings = false;
+			SaveSettingsButton.IsEnabled = true;
+			UpdateStatus();
+		}
+	}
+
+	private static string ShortenRemote(string remote)
+	{
+		var trimmed = remote.Trim();
+		if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
+		{
+			return uri.Host + uri.AbsolutePath;
+		}
+
+		return trimmed;
+	}
+
+	private void ShowEmptyProjects()
+	{
+		ProjectsPanel.Children.Add(CreateHintCard("Set up the sync repository in Settings, then add a project below."));
+		SessionSelectionPanel.Children.Add(CreateHintCard("Add a project above to choose its chats."));
+	}
+
+	private Border CreateHintCard(string text) => new()
+	{
+		Style = (Style)WindowRoot.Resources["CardStyle"],
+		MinHeight = 0,
+		Padding = new Thickness(16),
+		Child = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Style = (Style)WindowRoot.Resources["CaptionStyle"], FontSize = 14 }
+	};
+
+	private void OnSyncFolderChanged(object sender, TextChangedEventArgs e)
+	{
+		if (!_loadingSettings && _loadedFolder is not null
+			&& !string.Equals(SyncFolderTextBox.Text, _loadedFolder, StringComparison.OrdinalIgnoreCase))
+		{
+			RemoteTextBox.Text = string.Empty;
+		}
+	}
+
+	private async void OnBrowseFolderClick(object sender, RoutedEventArgs e)
+	{
+		try
+		{
+			if (await PickFolderAsync() is { } path)
+			{
+				SyncFolderTextBox.Text = path;
+			}
+		}
+		catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException
+			or UnauthorizedAccessException or InvalidOperationException)
+		{
+			ShowSettingsMessage($"Could not choose a folder: {exception.Message}", InfoBarSeverity.Error);
+		}
+	}
+
+	private async void OnBrowseProjectClick(object sender, RoutedEventArgs e)
+	{
+		try
+		{
+			if (await PickFolderAsync() is { } path)
+			{
+				ProjectFolderTextBox.Text = path;
+			}
+		}
+		catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException
+			or UnauthorizedAccessException or InvalidOperationException)
+		{
+			ShowProjectMessage($"Could not choose a project folder: {exception.Message}", InfoBarSeverity.Error);
+		}
+	}
+
+	private async Task<string?> PickFolderAsync()
+	{
+		var picker = new FolderPicker();
+		picker.FileTypeFilter.Add("*");
+		WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+		return (await picker.PickSingleFolderAsync())?.Path;
+	}
+
+	private async void OnSaveSettingsClick(object sender, RoutedEventArgs e)
+	{
+		var folder = SyncFolderTextBox.Text;
+		if (string.IsNullOrWhiteSpace(folder))
+		{
+			ShowSettingsMessage("Choose a sync folder before saving.", InfoBarSeverity.Error);
+			return;
+		}
+
+		SaveSettingsButton.IsEnabled = false;
+		SettingsProgress.IsActive = true;
+		try
+		{
+			var saved = await _syncHost.SaveSettingsAsync(folder, RemoteTextBox.Text, InitializeToggle.IsOn);
+			if (!saved)
+			{
+				ShowSettingsMessage("A sync is in progress. Try saving again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			InitializeToggle.IsOn = false;
+			if (await LoadSettingsAsync())
+			{
+				ShowSettingsMessage("Settings saved. Sync will use this folder on the next run.", InfoBarSeverity.Success);
+			}
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or ArgumentException or GitCommandException or NotSupportedException)
+		{
+			ShowSettingsMessage($"Could not save settings: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			SaveSettingsButton.IsEnabled = true;
+			SettingsProgress.IsActive = false;
+		}
+	}
+
+	private async void OnAutomaticSyncToggled(object sender, RoutedEventArgs e)
+	{
+		if (_loadingSettings)
+		{
+			return;
+		}
+
+		var enabled = AutomaticSyncToggle.IsOn;
+		AutomaticSyncToggle.IsEnabled = false;
+		try
+		{
+			if (!await _syncHost.SaveAutomaticSyncAsync(enabled))
+			{
+				RevertAutomaticSyncToggle(!enabled);
+				ShowAutomaticSyncMessage("A sync is in progress. Try again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			AutomaticSyncInfoBar.IsOpen = false;
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or ArgumentException or NotSupportedException)
+		{
+			RevertAutomaticSyncToggle(!enabled);
+			ShowAutomaticSyncMessage($"Could not save automatic sync preference: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			AutomaticSyncToggle.IsEnabled = true;
+			UpdateStatus();
+		}
+	}
+
+	private void RevertAutomaticSyncToggle(bool value)
+	{
+		_loadingSettings = true;
+		AutomaticSyncToggle.IsOn = value;
+		_loadingSettings = false;
+	}
+
+	private void ShowAutomaticSyncMessage(string message, InfoBarSeverity severity)
+	{
+		AutomaticSyncInfoBar.Message = message;
+		AutomaticSyncInfoBar.Severity = severity;
+		AutomaticSyncInfoBar.IsOpen = true;
+	}
+
+	private async void OnThemeSelectionChanged(object sender, SelectionChangedEventArgs e)
+	{
+		if (_loadingSettings || ThemeComboBox.SelectedIndex is < 0 or > 2)
+		{
+			return;
+		}
+
+		var preference = ThemeComboBox.SelectedIndex switch
+		{
+			0 => ThemePreference.System,
+			1 => ThemePreference.Light,
+			2 => ThemePreference.Dark,
+			_ => throw new InvalidOperationException("Unknown window theme selection.")
+		};
+
+		ThemeComboBox.IsEnabled = false;
+		try
+		{
+			if (!await _syncHost.SaveThemePreferenceAsync(preference))
+			{
+				ShowThemeMessage("A sync is in progress. Try again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			ApplyTheme(preference);
+			ThemeInfoBar.IsOpen = false;
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or ArgumentException or NotSupportedException)
+		{
+			ShowThemeMessage($"Could not save window theme: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			ThemeComboBox.IsEnabled = true;
+		}
+	}
+
+	private void ApplyTheme(ThemePreference preference)
+	{
+		WindowRoot.RequestedTheme = preference switch
+		{
+			ThemePreference.System => ElementTheme.Default,
+			ThemePreference.Light => ElementTheme.Light,
+			ThemePreference.Dark => ElementTheme.Dark,
+			_ => throw new InvalidDataException($"Unknown window theme: {preference}")
+		};
+		AppWindow.TitleBar.PreferredTheme = preference switch
+		{
+			ThemePreference.Light => TitleBarTheme.Light,
+			ThemePreference.Dark => TitleBarTheme.Dark,
+			_ => TitleBarTheme.UseDefaultAppMode
+		};
+	}
+
+	private void ShowThemeMessage(string message, InfoBarSeverity severity)
+	{
+		ThemeInfoBar.Message = message;
+		ThemeInfoBar.Severity = severity;
+		ThemeInfoBar.IsOpen = true;
+	}
+
+	private async void OnRefreshProjectsClick(object sender, RoutedEventArgs e)
+	{
+		RefreshProjectsButton.IsEnabled = false;
+		try
+		{
+			await LoadSettingsAsync();
+		}
+		finally
+		{
+			RefreshProjectsButton.IsEnabled = true;
+		}
+	}
+
+	private void OnAddProviderChanged(object sender, SelectionChangedEventArgs e)
+	{
+		var claude = AddProviderRadioButtons.SelectedIndex == 1;
+		VisualStudioAddPanel.Visibility = claude ? Visibility.Collapsed : Visibility.Visible;
+		ClaudeAddPanel.Visibility = claude ? Visibility.Visible : Visibility.Collapsed;
+	}
+
+	private async void OnAddProjectClick(object sender, RoutedEventArgs e)
+	{
+		if (string.IsNullOrWhiteSpace(ProjectFolderTextBox.Text))
+		{
+			ShowProjectMessage("Choose a project folder before adding it.", InfoBarSeverity.Error);
+			return;
+		}
+
+		AddProjectButton.IsEnabled = false;
+		try
+		{
+			var added = await _syncHost.AddProjectAsync(ProjectFolderTextBox.Text,
+				ProjectNameTextBox.Text, ProjectRemoteTextBox.Text);
+			if (!added)
+			{
+				ShowProjectMessage("A sync is in progress. Try adding the project again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			ProjectFolderTextBox.Text = string.Empty;
+			ProjectNameTextBox.Text = string.Empty;
+			ProjectRemoteTextBox.Text = string.Empty;
+			if (await LoadSettingsAsync())
+			{
+				AddProjectExpander.IsExpanded = false;
+				ShowProjectMessage("Project registered on this PC. Sync now to archive its chats.", InfoBarSeverity.Success);
+			}
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
+		{
+			ShowProjectMessage($"Could not add project: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			AddProjectButton.IsEnabled = true;
+		}
+	}
+
+	private async void OnDiscoverClaudeClick(object sender, RoutedEventArgs e)
+	{
+		DiscoverClaudeButton.IsEnabled = false;
+		ClaudeCandidatePanel.Children.Clear();
+		try
+		{
+			var candidates = await Task.Run(() => ClaudeProjectDiscovery.DiscoverCandidates(new ProcessGuard())
+				.Select(candidate =>
+				{
+					var root = candidate.LocalPathExists ? GitRemoteReader.FindRepositoryRoot(candidate.LocalPath) : null;
+					var remote = root is not null && string.Equals(root, candidate.LocalPath, StringComparison.OrdinalIgnoreCase)
+						? GitRemoteReader.FindPrimaryRemoteUrl(root) : null;
+					var eligible = candidate.LocalPathExists && !candidate.HasStorageCollision
+						&& candidate.StorageFolderName is not null
+						&& candidate.Sessions.Any(session => session.IsInStorageFolder)
+						&& !string.IsNullOrWhiteSpace(remote)
+						&& ProjectIdentity.TryFromRemote(remote, out _);
+					return (Candidate: candidate, Remote: remote, Eligible: eligible);
+				}).ToArray());
+
+			if (candidates.Length == 0)
+			{
+				ClaudeCandidatePanel.Children.Add(CreateHintCard("No Claude Code sessions with recorded project folders were found."));
+			}
+
+			foreach (var (candidate, remote, eligible) in candidates)
+			{
+				var row = new Grid { ColumnSpacing = 16 };
+				row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+				row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+				row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+				row.Children.Add(CreateProviderBadge(ClaudeProviderId, 32));
+				var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+				text.Children.Add(new TextBlock
+				{
+					Text = candidate.LocalPath, TextTrimming = TextTrimming.CharacterEllipsis,
+					FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 13
+				});
+				text.Children.Add(new TextBlock
+				{
+					Style = (Style)WindowRoot.Resources["CaptionStyle"],
+					Text = eligible
+						? $"Git remote: {remote} · {candidate.Sessions.Count(session => session.IsInStorageFolder)} transcripts"
+						: "Unavailable: folder missing, unsafe storage mapping, or no Git remote at the project root."
+				});
+				Grid.SetColumn(text, 1);
+				row.Children.Add(text);
+				if (eligible)
+				{
+					var add = new Button { Content = "Add", VerticalAlignment = VerticalAlignment.Center };
+					add.Click += async (_, _) => await AddClaudeProjectAsync(candidate.LocalPath, add);
+					Grid.SetColumn(add, 2);
+					row.Children.Add(add);
+				}
+				else
+				{
+					row.Opacity = 0.6;
+				}
+
+				ClaudeCandidatePanel.Children.Add(new Border { Style = (Style)WindowRoot.Resources["CardStyle"], Child = row });
+			}
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or InvalidDataException or InvalidOperationException or ArgumentException or NotSupportedException)
+		{
+			ShowProjectMessage($"Could not discover Claude Code projects: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			DiscoverClaudeButton.IsEnabled = true;
+		}
+	}
+
+	private async Task AddClaudeProjectAsync(string path, Button button)
+	{
+		button.IsEnabled = false;
+		try
+		{
+			if (!await _syncHost.AddClaudeProjectAsync(path))
+			{
+				ShowProjectMessage("A sync is in progress. Try adding the Claude Code project again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			ClaudeCandidatePanel.Children.Clear();
+			if (await LoadSettingsAsync())
+			{
+				AddProjectExpander.IsExpanded = false;
+				ShowProjectMessage("Claude Code enabled for this Git project on this PC.", InfoBarSeverity.Success);
+			}
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or InvalidDataException or InvalidOperationException or ArgumentException or NotSupportedException)
+		{
+			ShowProjectMessage($"Could not add Claude Code project: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			button.IsEnabled = true;
+		}
+	}
+
+	private async Task RemoveProjectAsync(ProjectIdentity identity, Button button)
+	{
+		var confirm = new ContentDialog
+		{
+			XamlRoot = Content.XamlRoot,
+			RequestedTheme = WindowRoot.ActualTheme,
+			Title = "Remove project from this PC?",
+			Content = $"{identity.NormalizedRemote} will no longer sync on this PC. Archived chats in the private repository and local chat files will not be deleted.",
+			PrimaryButtonText = "Remove",
+			CloseButtonText = "Cancel",
+			DefaultButton = ContentDialogButton.Close
+		};
+		if (await confirm.ShowAsync() != ContentDialogResult.Primary)
+		{
+			return;
+		}
+
+		button.IsEnabled = false;
+		try
+		{
+			if (!await _syncHost.RemoveProjectAsync(identity))
+			{
+				ShowProjectMessage("A sync is in progress. Try removing the project again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			if (await LoadSettingsAsync())
+			{
+				ShowProjectMessage("Project removed from this PC. Archived chats remain in the private repository.", InfoBarSeverity.Success);
+			}
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
+		{
+			ShowProjectMessage($"Could not remove project: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			button.IsEnabled = true;
+		}
+	}
+
+	private async Task SyncProjectAsync(ProjectIdentity identity, Button button)
+	{
+		button.IsEnabled = false;
+		button.Content = "Syncing…";
+		try
+		{
+			var outcome = await _syncHost.SyncProjectAsync(identity);
+			ShowOutcome(outcome);
+			if (outcome.NeedsAttention || outcome.Status == SyncOutcomeStatus.AlreadyRunning)
+			{
+				ShowProjectMessage(outcome.Summary, InfoBarSeverity.Warning);
+			}
+			else if (await LoadSettingsAsync())
+			{
+				ShowProjectMessage(outcome.Summary, InfoBarSeverity.Success);
+			}
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
+		{
+			ShowProjectMessage($"Could not sync project: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			button.Content = "Sync this project";
+			button.IsEnabled = true;
+		}
+	}
+
+	private void ShowProjectMessage(string message, InfoBarSeverity severity)
+	{
+		ProjectInfoBar.Message = message;
+		ProjectInfoBar.Severity = severity;
+		ProjectInfoBar.IsOpen = true;
+	}
+
+	private static string GetProviderName(string providerId) =>
+		providerId == ClaudeProviderId ? "Claude Code" : "Visual Studio (Copilot)";
+
+	private static Border CreateProviderBadge(string providerId, double size)
+	{
+		var claude = providerId == ClaudeProviderId;
+		return new Border
+		{
+			Width = size,
+			Height = size,
+			CornerRadius = new CornerRadius(4),
+			VerticalAlignment = VerticalAlignment.Center,
+			Background = new SolidColorBrush(claude
+				? Windows.UI.Color.FromArgb(0xFF, 0xC1, 0x5F, 0x3C)
+				: Windows.UI.Color.FromArgb(0xFF, 0x68, 0x21, 0x7A)),
+			Child = new TextBlock
+			{
+				Text = claude ? "CC" : "VS",
+				Foreground = new SolidColorBrush(Colors.White),
+				FontSize = size >= 32 ? 11 : 10,
+				FontWeight = FontWeights.Bold,
+				HorizontalAlignment = HorizontalAlignment.Center,
+				VerticalAlignment = VerticalAlignment.Center
+			}
+		};
+	}
+
+	private async Task LoadSessionsAsync(LocalConfig config, string syncRoot)
+	{
+		var groups = await Task.Run(() =>
+		{
+			var shared = SharedConfig.Load(syncRoot);
+			var results = new List<(string ProviderId, ProjectIdentity Project, string Name, string LocalPath, DateTime? LastRunUtc, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> Sessions)>();
+			foreach (var entry in config.Projects)
+			{
+				if (!ProjectIdentity.TryFromRemote(entry.Remote, out var identity) || identity is null)
+				{
+					throw new InvalidDataException($"Invalid registered project remote: {entry.Remote}");
+				}
+
+				var name = shared.Find(identity)?.Name ?? identity.Slug;
+				if (name is "." or ".." || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+					|| name.Contains('/') || name.Contains('\\'))
+				{
+					throw new InvalidDataException($"Invalid shared project folder name: {name}");
+				}
+
+				foreach (var providerId in LocalConfig.GetEnabledProviderIds(entry))
+				{
+					var projectRoot = Path.Combine(syncRoot, providerId, name);
+					IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> sessions = providerId switch
+					{
+						VisualStudioProviderId => CopilotChatDiscovery.DiscoverSessions(projectRoot)
+							.Select(session => (Id: Path.GetFileName(session.SessionDirectory), session.Name, session.UpdatedAt))
+							.ToArray(),
+						ClaudeProviderId => ClaudeArchivedChatDiscovery.Discover(projectRoot)
+							.Select(session => (session.Id, session.Title, (DateTimeOffset?)new DateTimeOffset(session.UpdatedAt)))
+							.ToArray(),
+						_ => throw new InvalidDataException($"Unsupported registered provider: {providerId}")
+					};
+					var statePath = new SyncWorkspace(config, shared).GetStatePath(providerId, new ProjectInfo
+					{
+						Identity = identity, LocalPath = entry.LocalPath, DisplayName = name
+					});
+					DateTime? lastRun = File.Exists(statePath) ? File.GetLastWriteTimeUtc(statePath) : null;
+					results.Add((providerId, identity, name, entry.LocalPath, lastRun,
+						config.FindRestoreSelection(providerId, identity), sessions));
+				}
+			}
+
+			return results;
+		});
+
+		if (groups.Count == 0)
+		{
+			ProjectsPanel.Children.Add(CreateHintCard("No projects registered yet. Expand Add a project below to get started."));
+			SessionSelectionPanel.Children.Add(CreateHintCard("Add a project above to choose its chats."));
+			return;
+		}
+
+		foreach (var group in groups)
+		{
+			ProjectsPanel.Children.Add(CreateProjectRow(group.ProviderId, group.Project, group.Name,
+				group.LocalPath, group.LastRunUtc, group.Sessions.Count));
+			SessionSelectionPanel.Children.Add(CreateRestoreRow(group.ProviderId, group.Project, group.Name,
+				group.Selection, group.Sessions));
+		}
+	}
+
+	private Expander CreateProjectRow(string providerId, ProjectIdentity project, string name,
+		string localPath, DateTime? lastRunUtc, int chatCount)
+	{
+		var providerName = GetProviderName(providerId);
+		var header = new Grid { ColumnSpacing = 16, MinHeight = 44 };
+		header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+		header.Children.Add(CreateProviderBadge(providerId, 32));
+		var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+		title.Children.Add(new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis });
+		title.Children.Add(new TextBlock
+		{
+			Style = (Style)WindowRoot.Resources["CaptionStyle"],
+			Text = $"{providerName} · {chatCount} archived chats"
+		});
+		Grid.SetColumn(title, 1);
+		header.Children.Add(title);
+
+		var details = new Grid { ColumnSpacing = 24, RowSpacing = 6 };
+		details.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		details.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+		AddDetail(details, 0, "Provider", providerName, monospace: false);
+		AddDetail(details, 1, "Git remote", project.NormalizedRemote, monospace: true);
+		AddDetail(details, 2, "Local folder", localPath, monospace: true);
+		AddDetail(details, 3, "Last local sync run",
+			lastRunUtc is { } time ? time.ToLocalTime().ToString("g") : "Never", monospace: false);
+
+		var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+		var sync = new Button { Content = "Sync this project" };
+		sync.Click += async (_, _) => await SyncProjectAsync(project, sync);
+		actions.Children.Add(sync);
+		var remove = new Button { Content = "Remove from this PC" };
+		remove.Click += async (_, _) => await RemoveProjectAsync(project, remove);
+		actions.Children.Add(remove);
+
+		var content = new StackPanel { Spacing = 16, Padding = new Thickness(48, 0, 0, 0) };
+		content.Children.Add(details);
+		content.Children.Add(actions);
+
+		return new Expander
+		{
+			Header = header,
+			Content = content,
+			IsExpanded = false,
+			HorizontalAlignment = HorizontalAlignment.Stretch,
+			HorizontalContentAlignment = HorizontalAlignment.Stretch
+		};
+	}
+
+	private void AddDetail(Grid grid, int row, string label, string value, bool monospace)
+	{
+		grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+		var labelText = new TextBlock { Text = label, Style = (Style)WindowRoot.Resources["CaptionStyle"], FontSize = 14, LineHeight = 20 };
+		var valueText = new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+		if (monospace)
+		{
+			valueText.FontFamily = new FontFamily("Cascadia Mono, Consolas");
+			valueText.FontSize = 13;
+		}
+
+		Grid.SetRow(labelText, row);
+		Grid.SetRow(valueText, row);
+		Grid.SetColumn(valueText, 1);
+		grid.Children.Add(labelText);
+		grid.Children.Add(valueText);
+	}
+
+	private Expander CreateRestoreRow(string providerId, ProjectIdentity project, string name,
+		LocalRestoreSelection? selection, IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> sessions)
+	{
+		var providerName = GetProviderName(providerId);
+		var captionStyle = (Style)WindowRoot.Resources["CaptionStyle"];
+
+		var restore = new CheckBox
+		{
+			Content = "Restore on this PC",
+			MinWidth = 0,
+			IsChecked = selection is null || selection.SessionIds.Count > 0,
+			VerticalAlignment = VerticalAlignment.Center
+		};
+		ToolTipService.SetToolTip(restore, $"Controls {providerName} restores on this PC; archived chats remain in Git.");
+
+		var summary = new TextBlock { Style = captionStyle, FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap };
+		var label = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
+		label.Children.Add(CreateProviderBadge(providerId, 24));
+		var labelText = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+		labelText.Children.Add(new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis });
+		labelText.Children.Add(summary);
+		label.Children.Add(labelText);
+
+		var header = new Grid { ColumnSpacing = 16, MinHeight = 44 };
+		header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+		header.Children.Add(restore);
+		var divider = new Border { Style = (Style)WindowRoot.Resources["VerticalDividerStyle"] };
+		Grid.SetColumn(divider, 1);
+		header.Children.Add(divider);
+		Grid.SetColumn(label, 2);
+		header.Children.Add(label);
+
+		var all = new CheckBox { Content = "Restore all chats, including future ones", IsChecked = selection is null };
+		var selectionStatus = new TextBlock { Style = captionStyle, Margin = new Thickness(28, 0, 0, 8) };
+		var search = new TextBox { PlaceholderText = "Search by title or session ID", Header = "Find chats", MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 320 };
+
+		var list = new StackPanel();
+		var items = new List<(string Id, CheckBox Selected)>();
+		var searchable = new List<(string Id, string Title, FrameworkElement Row)>();
+		foreach (var session in sessions)
+		{
+			var title = FormatChatTitle(session.Name, session.Id);
+			var text = new StackPanel();
+			text.Children.Add(new TextBlock
+			{
+				Text = title, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+				Opacity = title == "Untitled chat" ? 0.7 : 1
+			});
+			var shortId = session.Id.Length > 8 ? session.Id[..8] : session.Id;
+			text.Children.Add(new TextBlock
+			{
+				Style = captionStyle,
+				Text = session.UpdatedAt is { } updated
+					? $"Updated {updated.ToLocalTime():g} · ID {shortId}"
+					: $"ID {shortId}"
+			});
+			var selected = new CheckBox
+			{
+				Content = text,
+				MinWidth = 0,
+				HorizontalAlignment = HorizontalAlignment.Stretch,
+				IsChecked = selection?.SessionIds.Contains(session.Id, StringComparer.OrdinalIgnoreCase) ?? true
+			};
+			ToolTipService.SetToolTip(selected, $"Session ID: {session.Id}");
+			var row = new Border { Style = (Style)WindowRoot.Resources["ChatRowStyle"], Child = selected };
+			list.Children.Add(row);
+			items.Add((session.Id, selected));
+			searchable.Add((session.Id, session.Name ?? title, row));
+		}
+
+		var noMatches = new TextBlock { Text = "No chats match this search.", Style = captionStyle, FontSize = 14, Margin = new Thickness(12, 16, 12, 16), Visibility = Visibility.Collapsed };
+		list.Children.Add(noMatches);
+		var listBorder = new Border
+		{
+			Style = (Style)WindowRoot.Resources["ChatListStyle"],
+			Child = new ScrollViewer { MaxHeight = 360, Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+		};
+
+		var content = new StackPanel { Spacing = 8, Padding = new Thickness(48, 0, 0, 0) };
+		content.Children.Add(all);
+		content.Children.Add(selectionStatus);
+		if (items.Count == 0)
+		{
+			content.Children.Add(new TextBlock { Text = "No synced chats for this project yet.", Style = captionStyle, FontSize = 14 });
+		}
+		else
+		{
+			content.Children.Add(search);
+			content.Children.Add(listBorder);
+		}
+
+		var expander = new Expander
+		{
+			Header = header,
+			Content = content,
+			IsExpanded = false,
+			HorizontalAlignment = HorizontalAlignment.Stretch,
+			HorizontalContentAlignment = HorizontalAlignment.Stretch
+		};
+
+		// While "restore all" is on, every chat shows as selected; the individual picks are kept for when it is turned off.
+		var individual = items.ToDictionary(item => item.Id, item => item.Selected.IsChecked == true);
+		var applyingAll = false;
+
+		void ApplyRestoreAll()
+		{
+			applyingAll = true;
+			var restoreAll = all.IsChecked == true;
+			foreach (var (id, box) in items)
+			{
+				box.IsChecked = restoreAll || individual[id];
+				box.IsEnabled = !restoreAll;
+			}
+
+			applyingAll = false;
+		}
+
+		void UpdateSelectionSummary()
+		{
+			var enabled = restore.IsChecked == true;
+			var restoreAll = all.IsChecked == true;
+			var selectedCount = items.Count(item => item.Selected.IsChecked == true);
+			content.IsHitTestVisible = enabled;
+			content.Opacity = enabled ? 1 : 0.5;
+			label.Opacity = enabled ? 1 : 0.5;
+			summary.Text = !enabled
+				? $" · {providerName} · {items.Count} chats · not restored"
+				: restoreAll
+					? $" · {providerName} · {items.Count} chats · restore all"
+					: $" · {providerName} · {selectedCount}/{items.Count} chats selected";
+			selectionStatus.Text = !enabled
+				? $"No {providerName} chats from this project will be restored on this PC. Archived and existing local chats remain unchanged."
+				: restoreAll
+					? $"All {items.Count} archived chats selected. Future chats will be restored automatically."
+					: $"{selectedCount} of {items.Count} archived chats selected. Future chats will not be restored automatically.";
+		}
+
+		foreach (var (id, box) in items)
+		{
+			box.Checked += (_, _) => OnSessionToggled(id, true);
+			box.Unchecked += (_, _) => OnSessionToggled(id, false);
+		}
+
+		void OnSessionToggled(string id, bool value)
+		{
+			if (applyingAll)
+			{
+				return;
+			}
+
+			individual[id] = value;
+			UpdateSelectionSummary();
+			MarkSelectionDirty();
+		}
+
+		restore.Checked += (_, _) =>
+		{
+			if (all.IsChecked != true && individual.Values.All(value => !value))
+			{
+				all.IsChecked = true;
+			}
+
+			UpdateSelectionSummary();
+			MarkSelectionDirty();
+		};
+		restore.Unchecked += (_, _) =>
+		{
+			expander.IsExpanded = false;
+			UpdateSelectionSummary();
+			MarkSelectionDirty();
+		};
+		all.Checked += (_, _) => { ApplyRestoreAll(); UpdateSelectionSummary(); MarkSelectionDirty(); };
+		all.Unchecked += (_, _) => { ApplyRestoreAll(); UpdateSelectionSummary(); MarkSelectionDirty(); };
+		search.TextChanged += (_, _) =>
+		{
+			var query = search.Text.Trim();
+			var matches = 0;
+			foreach (var (id, title, row) in searchable)
+			{
+				var visible = title.Contains(query, StringComparison.OrdinalIgnoreCase)
+					|| id.Contains(query, StringComparison.OrdinalIgnoreCase);
+				row.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+				if (visible)
+				{
+					matches++;
+				}
+			}
+
+			noMatches.Visibility = items.Count > 0 && matches == 0 ? Visibility.Visible : Visibility.Collapsed;
+		};
+
+		ApplyRestoreAll();
+		UpdateSelectionSummary();
+		_sessionGroups.Add((providerId, project, restore, all, items));
+		return expander;
+	}
+
+	private void MarkSelectionDirty()
+	{
+		SaveSelectionButton.IsEnabled = true;
+		SelectionHintText.Text = "Unsaved changes";
+	}
+
+	private static string FormatChatTitle(string? name, string id)
+	{
+		if (string.IsNullOrWhiteSpace(name) || string.Equals(name.Trim(), id, StringComparison.OrdinalIgnoreCase))
+		{
+			return "Untitled chat";
+		}
+
+		var title = string.Join(" ", name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+		if (title.StartsWith("The following code changes are from one or more source files in a diff format.", StringComparison.OrdinalIgnoreCase))
+		{
+			return "Untitled chat";
+		}
+
+		return title.Length > 90 ? title[..87] + "..." : title;
+	}
+
+	private async void OnSaveSelectionClick(object sender, RoutedEventArgs e)
+	{
+		var selections = _sessionGroups.Select(group =>
+			(group.ProviderId, group.Project, SessionIds: group.Restore.IsChecked != true
+				? (IReadOnlyList<string>)[]
+				: group.All.IsChecked == true
+					? null
+					: group.Sessions.Where(session => session.Selected.IsChecked == true)
+						.Select(session => session.Id).ToArray())).ToArray();
+
+		SaveSelectionButton.IsEnabled = false;
+		var saved = false;
+		try
+		{
+			if (!await _syncHost.SaveRestoreSelectionsAsync(selections))
+			{
+				ShowSelectionMessage("A sync is in progress. Try again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			saved = true;
+			SelectionInfoBar.IsOpen = false;
+			SelectionHintText.Text = "Chat selection saved on this PC. Unselected chats remain in the Git repository; existing local chats are not deleted.";
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or ArgumentException or InvalidDataException or NotSupportedException)
+		{
+			ShowSelectionMessage($"Could not save chat selection: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			SaveSelectionButton.IsEnabled = !saved;
+		}
+	}
+
+	private void ShowSelectionMessage(string message, InfoBarSeverity severity)
+	{
+		SelectionInfoBar.Message = message;
+		SelectionInfoBar.Severity = severity;
+		SelectionInfoBar.IsOpen = true;
+	}
+
+	private void ShowSettingsMessage(string message, InfoBarSeverity severity)
+	{
+		SettingsInfoBar.Message = message;
+		SettingsInfoBar.Severity = severity;
+		SettingsInfoBar.IsOpen = true;
+	}
+
+	private async void OnSyncNowClick(object sender, RoutedEventArgs e)
+	{
+		_manualSyncRunning = true;
+		UpdateStatus();
+
+		try
+		{
+			ShowOutcome(await _syncHost.SyncNowAsync());
+		}
+		finally
+		{
+			_manualSyncRunning = false;
+			UpdateStatus();
+		}
+	}
+
+	private void OnSyncCompleted(object? sender, SyncOutcome outcome) =>
+		DispatcherQueue.TryEnqueue(() => ShowOutcome(outcome));
+
+	private void OnProviderRunningChanged(object? sender, bool isRunning) =>
+		DispatcherQueue.TryEnqueue(UpdateStatus);
+
+	private void ShowOutcome(SyncOutcome outcome)
+	{
+		_lastOutcomeTime = DateTime.Now;
+		LastRunText.Text = $"{_lastOutcomeTime:g} · {outcome.Status}: {outcome.Summary}";
+		UpdateStatus();
+	}
+
+	private void UpdateStatus()
+	{
+		var syncing = _manualSyncRunning || _syncHost.IsSyncing;
+		var outcome = _syncHost.LastOutcome;
+		var repository = RepositorySummaryText.Text;
+		string title;
+		string description;
+		FrameworkElement icon;
+
+		if (syncing)
+		{
+			(title, description, icon) = ("Syncing chats…", $"Archiving chats and pushing them to {repository}.", StatusSyncingIcon);
+		}
+		else if (_configuredFolder is not { Length: > 0 })
+		{
+			StatusCautionGlyph.Glyph = "\uE7BA";
+			(title, description, icon) = ("Set up your sync repository", "Choose a private sync folder in Settings to start syncing.", StatusCautionIcon);
+		}
+		else if (outcome is not null && outcome.Status != SyncOutcomeStatus.AlreadyRunning && outcome.NeedsAttention)
+		{
+			(title, description, icon) = (outcome.HasConflicts ? "Sync needs attention" : "Sync did not complete", outcome.Summary, StatusErrorIcon);
+		}
+		else if (_syncHost.IsProviderRunning && AutomaticSyncToggle.IsOn)
+		{
+			StatusCautionGlyph.Glyph = "\uE823";
+			(title, description, icon) = ("Waiting for chat tools to close",
+				"Visual Studio or Claude Code is open. Chats sync automatically once it closes; Sync now archives them right away.", StatusCautionIcon);
+		}
+		else if (outcome is { Status: SyncOutcomeStatus.Completed } && _lastOutcomeTime is { } time)
+		{
+			(title, description, icon) = ("Up to date", $"Last synced {time:g} · {outcome.Summary}", StatusSuccessIcon);
+		}
+		else if (!AutomaticSyncToggle.IsOn)
+		{
+			StatusNeutralGlyph.Glyph = "\uE769";
+			(title, description, icon) = ("Automatic sync is off", "Use Sync now, or sync individual projects from Projects.", StatusNeutralIcon);
+		}
+		else
+		{
+			StatusNeutralGlyph.Glyph = "\uE895";
+			(title, description, icon) = ("Ready", "Chats sync automatically after Visual Studio or Claude Code closes.", StatusNeutralIcon);
+		}
+
+		StatusTitleText.Text = title;
+		StatusDescriptionText.Text = description;
+		foreach (var candidate in new FrameworkElement[] { StatusNeutralIcon, StatusSyncingIcon, StatusSuccessIcon, StatusCautionIcon, StatusErrorIcon })
+		{
+			candidate.Visibility = candidate == icon ? Visibility.Visible : Visibility.Collapsed;
+		}
+
+		SyncProgressBar.Visibility = syncing ? Visibility.Visible : Visibility.Collapsed;
+		SyncNowButton.IsEnabled = !syncing;
+		SyncNowButton.Content = syncing ? "Syncing…" : "Sync now";
+	}
+
+	/// <summary>
+	/// The app lives in the tray, so closing this window only detaches it from the
+	/// sync host rather than stopping the watch.
+	/// </summary>
+	private void OnClosed(object sender, WindowEventArgs args)
+	{
+		_syncHost.SyncCompleted -= OnSyncCompleted;
+		_syncHost.ProviderRunningChanged -= OnProviderRunningChanged;
+		Closed -= OnClosed;
+	}
 }
