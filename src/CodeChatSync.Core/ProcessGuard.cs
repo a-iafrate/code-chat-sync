@@ -61,7 +61,8 @@ public sealed class ProcessGuard : IProcessGuard
     /// <summary>
     /// Returns the guard used for sync runs: the inner guard, except that the
     /// process names of providers whose check the user skipped are never reported.
-    /// Watchers must keep using the real guard so automatic sync still waits for a close.
+    /// Watchers keep using the real guard to detect closes; the host decides which
+    /// running providers hold back automatic sync.
     /// </summary>
     public static IProcessGuard ForSync(IProcessGuard inner, LocalConfig config, IEnumerable<IChatProvider> providers)
     {

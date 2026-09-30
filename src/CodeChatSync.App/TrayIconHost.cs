@@ -12,6 +12,9 @@ namespace CodeChatSync.App;
 /// </summary>
 public sealed class TrayIconHost : IDisposable
 {
+    private const string WaitingStatus = "Waiting for chat tools to close";
+    private const string ReadyStatus = "Ready: syncs when chat tools close";
+
     private readonly SyncHost _syncHost;
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly TaskbarIcon _trayIcon;
@@ -34,7 +37,7 @@ public sealed class TrayIconHost : IDisposable
             Command = new RelayCommand(async () => await SyncNowAsync())
         };
 
-        _statusItem = new MenuFlyoutItem { Text = "Waiting for Visual Studio to close", IsEnabled = false };
+        _statusItem = new MenuFlyoutItem { Text = ReadyStatus, IsEnabled = false };
 
         var openItem = new MenuFlyoutItem
         {
@@ -85,7 +88,7 @@ public sealed class TrayIconHost : IDisposable
 
         _trayIcon.ForceCreate();
         RefreshAutoStart();
-        UpdateStatus(_syncHost.IsProviderRunning ? "Visual Studio is open" : "Waiting for Visual Studio to close");
+        UpdateStatus(_syncHost.IsProviderRunning ? WaitingStatus : ReadyStatus);
     }
 
     /// <summary>Raised when the user asks to see the status window.</summary>
@@ -130,8 +133,7 @@ public sealed class TrayIconHost : IDisposable
         _dispatcherQueue.TryEnqueue(() => Notify(outcome));
 
     private void OnProviderRunningChanged(object? sender, bool isRunning) =>
-        _dispatcherQueue.TryEnqueue(() => UpdateStatus(
-            isRunning ? "Visual Studio is open" : "Waiting for Visual Studio to close"));
+        _dispatcherQueue.TryEnqueue(() => UpdateStatus(_syncHost.IsProviderRunning ? WaitingStatus : ReadyStatus));
 
     private void ToggleAutoStart()
     {

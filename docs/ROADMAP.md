@@ -83,7 +83,7 @@ without a recorded repository still need validation.
       reopenable from Settings > Help
 - [x] Toggle: automatic sync on VS close (per PC, enabled by default)
 - [x] Opt-outs: sync Visual Studio / Claude Code while running (per PC, off by
-      default, with warning and confirmation; automatic sync still waits for close)
+      default, with warning and confirmation; a skipped tool no longer holds back automatic sync)
 - [ ] Conflicts section: "keep local / keep remote" choice
 - [ ] Sync log
 

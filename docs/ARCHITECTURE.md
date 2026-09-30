@@ -25,10 +25,13 @@ repo; no sync-tool file should ever end up in a client repo.
   that are in use or getting corrupted. The only exception is an explicit,
   per-PC opt-out (`skipRunningCheckProviderIds` in the local config,
   exposed for Visual Studio and Claude Code under *Settings > Advanced*):
-  `ProcessGuard.ForSync` wraps the real guard so manual syncs and discovery
-  ignore that provider's processes. The provider-close watcher keeps using
-  the real guard, so automatic sync still waits for every tool to close;
-  backups before overwrite stay active.
+  `ProcessGuard.ForSync` wraps the real guard so every sync run (manual or
+  automatic) and discovery ignore that provider's processes. The watchers keep
+  using the real guard to detect closes, but the tray host does not count a
+  skipped provider as running: it neither holds back the automatic sync
+  triggered by another tool closing nor shows "waiting". A skipped tool that
+  stays open does not trigger a sync by itself; *Sync now* covers that case.
+  Backups before overwrite stay active.
 - **Backup before overwrite.** Every local restore backs up the existing
   file before replacing it.
 - **Storage: the user's own private Git repo.** No third-party service, no
@@ -200,11 +203,19 @@ A `sync` run is pull → copy → commit → push:
   merge or rebase could silently combine two versions of the same transcript.
   A divergence stops the run and leaves both sides untouched for the user to
   resolve.
-- **No remote, or a branch never pushed**, is a normal first run, not a
-  failure: the sync continues and the commit simply stays local.
-- **Missing Git, or a sync folder that is not a repository**, degrades to
-  plain file copying with an explanation, so chats still reach the sync folder.
-  `--no-git` forces that mode.
+- **No remote, or an empty remote**, is a normal first run, not a failure:
+  the sync continues and the commit simply stays local or becomes the first
+  push.
+- **A branch without upstream is fetched first.** If the remote already has
+  the same branch (another PC pushed first), it is pulled fast-forward and set
+  as upstream before anything is copied; if the remote only has other branches
+  or cannot be reached, the run stops. On a branch with no commit yet, the
+  untracked `.gitignore` from `--init` is set aside for the checkout and its
+  `.backups/` entry merged back.
+- **A sync folder that is not a repository** degrades to plain file copying
+  with an explanation, so chats still reach the sync folder. **Missing or
+  unusable Git on a folder that is a repository stops the run**, because it
+  could not be pulled first. `--no-git` forces file-only mode.
 - **`config set-sync-root --init`** creates the repository and writes a
   `.gitignore` containing `.backups/`, keeping the local backups taken before
   each overwrite out of the sync repo.

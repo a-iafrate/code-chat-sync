@@ -214,6 +214,137 @@ public sealed class SyncRepositoryTests
     }
 
     [Fact]
+    public void Pull_SecondPcWithoutUpstreamFetchesChatsAndCanPush()
+    {
+        using var temp = new TempDirectory();
+        var remotePath = temp.Combine("remote.git");
+        Git.RunOrThrow(temp.Path, ["init", "--bare", remotePath]);
+
+        var firstPc = CreateRepository(temp.Combine("pc-one"), remotePath);
+        var branchName = Git.RunOrThrow(firstPc.RepositoryPath, ["symbolic-ref", "--short", "HEAD"]).StandardOutput.Trim();
+        File.Delete(Path.Combine(firstPc.RepositoryPath, ".gitignore"));
+        File.WriteAllText(Path.Combine(firstPc.RepositoryPath, "chat.jsonl"), "from pc-one");
+        Assert.True(firstPc.Commit("First PC chats"));
+        var firstPush = firstPc.Push();
+        Assert.True(firstPush.Succeeded, firstPush.ErrorMessage);
+
+        var secondPc = CreateUnbornRepository(temp.Combine("pc-two"), remotePath, branchName);
+        Assert.False(Git.Run(secondPc.RepositoryPath, ["rev-parse", "--verify", "HEAD"]).Succeeded);
+        var pull = secondPc.Pull();
+
+        Assert.Equal(PullStatus.UpToDate, pull.Status);
+        Assert.True(pull.CanContinue);
+        Assert.Equal("from pc-one", File.ReadAllText(Path.Combine(secondPc.RepositoryPath, "chat.jsonl")));
+        Assert.Equal($"origin/{branchName}", Git.RunOrThrow(secondPc.RepositoryPath,
+            ["rev-parse", "--abbrev-ref", "@{upstream}"]).StandardOutput.Trim());
+        Assert.Contains(".backups/", File.ReadAllLines(Path.Combine(secondPc.RepositoryPath, ".gitignore")));
+
+        File.WriteAllText(Path.Combine(secondPc.RepositoryPath, "chat.jsonl"), "from pc-two");
+        Assert.True(secondPc.Commit("Second PC chats"));
+        var push = secondPc.Push();
+        Assert.True(push.Succeeded, push.ErrorMessage);
+        Assert.Equal(Git.RunOrThrow(secondPc.RepositoryPath, ["rev-parse", "HEAD"]).StandardOutput.Trim(),
+            Git.RunOrThrow(temp.Path, ["--git-dir", remotePath, "rev-parse", $"refs/heads/{branchName}"]).StandardOutput.Trim());
+    }
+
+    [Fact]
+    public void Pull_SecondPcWithoutUpstreamReplacesUntrackedGitIgnoreWithRemoteVersion()
+    {
+        using var temp = new TempDirectory();
+        var remotePath = temp.Combine("remote.git");
+        Git.RunOrThrow(temp.Path, ["init", "--bare", remotePath]);
+
+        var firstPc = CreateRepository(temp.Combine("pc-one"), remotePath);
+        var branchName = Git.RunOrThrow(firstPc.RepositoryPath, ["symbolic-ref", "--short", "HEAD"]).StandardOutput.Trim();
+        File.AppendAllText(Path.Combine(firstPc.RepositoryPath, ".gitignore"), "remote-only/" + Environment.NewLine);
+        File.WriteAllText(Path.Combine(firstPc.RepositoryPath, "chat.jsonl"), "from pc-one");
+        Assert.True(firstPc.Commit("First PC chats and ignore rules"));
+        var firstPush = firstPc.Push();
+        Assert.True(firstPush.Succeeded, firstPush.ErrorMessage);
+
+        var secondPc = CreateUnbornRepository(temp.Combine("pc-two"), remotePath, branchName);
+        Assert.True(File.Exists(Path.Combine(secondPc.RepositoryPath, ".gitignore")));
+        Assert.False(Git.Run(secondPc.RepositoryPath, ["rev-parse", "--verify", "HEAD"]).Succeeded);
+        var pull = secondPc.Pull();
+
+        Assert.Equal(PullStatus.UpToDate, pull.Status);
+        Assert.True(pull.CanContinue);
+        Assert.Equal("from pc-one", File.ReadAllText(Path.Combine(secondPc.RepositoryPath, "chat.jsonl")));
+        var ignoreRules = File.ReadAllLines(Path.Combine(secondPc.RepositoryPath, ".gitignore"));
+        Assert.Contains("remote-only/", ignoreRules);
+        Assert.Single(ignoreRules, line => line.Trim() == ".backups/");
+        Assert.Equal($"origin/{branchName}", Git.RunOrThrow(secondPc.RepositoryPath,
+            ["rev-parse", "--abbrev-ref", "@{upstream}"]).StandardOutput.Trim());
+    }
+
+    [Fact]
+    public void Pull_WithoutUpstreamFailsOnUnrelatedLocalHistoryWithoutChangingFiles()
+    {
+        using var temp = new TempDirectory();
+        var remotePath = temp.Combine("remote.git");
+        Git.RunOrThrow(temp.Path, ["init", "--bare", remotePath]);
+
+        var firstPc = CreateRepository(temp.Combine("pc-one"), remotePath);
+        var branchName = Git.RunOrThrow(firstPc.RepositoryPath, ["symbolic-ref", "--short", "HEAD"]).StandardOutput.Trim();
+        File.WriteAllText(Path.Combine(firstPc.RepositoryPath, "chat.jsonl"), "remote chat");
+        Assert.True(firstPc.Commit("First PC chats"));
+        var firstPush = firstPc.Push();
+        Assert.True(firstPush.Succeeded, firstPush.ErrorMessage);
+
+        var secondPc = CreateUnbornRepository(temp.Combine("pc-two"), remotePath, branchName);
+        var localChat = Path.Combine(secondPc.RepositoryPath, "chat.jsonl");
+        File.WriteAllText(localChat, "local chat");
+        Assert.True(secondPc.Commit("Independent local history"));
+        var originalHead = Git.RunOrThrow(secondPc.RepositoryPath, ["rev-parse", "HEAD"]).StandardOutput.Trim();
+        Assert.False(Git.Run(secondPc.RepositoryPath, ["rev-parse", "--abbrev-ref", "@{upstream}"]).Succeeded);
+
+        var pull = secondPc.Pull();
+
+        Assert.Equal(PullStatus.Failed, pull.Status);
+        Assert.False(pull.CanContinue);
+        Assert.Equal("local chat", File.ReadAllText(localChat));
+        Assert.Equal(originalHead, Git.RunOrThrow(secondPc.RepositoryPath, ["rev-parse", "HEAD"]).StandardOutput.Trim());
+    }
+
+    [Fact]
+    public void Pull_WithoutUpstreamNamesTheDifferentRemoteBranch()
+    {
+        using var temp = new TempDirectory();
+        var remotePath = temp.Combine("remote.git");
+        Git.RunOrThrow(temp.Path, ["init", "--bare", remotePath]);
+
+        var firstPc = CreateRepository(temp.Combine("pc-one"), remotePath);
+        var remoteBranch = Git.RunOrThrow(firstPc.RepositoryPath, ["symbolic-ref", "--short", "HEAD"]).StandardOutput.Trim();
+        File.WriteAllText(Path.Combine(firstPc.RepositoryPath, "chat.jsonl"), "remote chat");
+        Assert.True(firstPc.Commit("First PC chats"));
+        var firstPush = firstPc.Push();
+        Assert.True(firstPush.Succeeded, firstPush.ErrorMessage);
+
+        var secondPc = CreateUnbornRepository(temp.Combine("pc-two"), remotePath, remoteBranch + "-different");
+        var pull = secondPc.Pull();
+
+        Assert.Equal(PullStatus.Failed, pull.Status);
+        Assert.False(pull.CanContinue);
+        Assert.Contains($"'{remoteBranch}'", pull.Message);
+        Assert.False(File.Exists(Path.Combine(secondPc.RepositoryPath, "chat.jsonl")));
+    }
+
+    [Fact]
+    public void Pull_WithoutUpstreamFailsWhenOriginDoesNotExist()
+    {
+        using var temp = new TempDirectory();
+        var missingRemote = temp.Combine("missing-remote.git");
+        var repository = CreateUnbornRepository(temp.Combine("pc-two"), missingRemote, "main");
+
+        var pull = repository.Pull();
+
+        Assert.Equal(PullStatus.Failed, pull.Status);
+        Assert.False(pull.CanContinue);
+        Assert.Contains("Could not reach the sync remote", pull.Message);
+        Assert.False(Directory.Exists(missingRemote));
+    }
+
+    [Fact]
     public void GetAndSetOriginRemoteUrl_InitializesAddsAndReplacesOrigin()
     {
         using var temp = new TempDirectory();
@@ -280,6 +411,16 @@ public sealed class SyncRepositoryTests
 
         Assert.Contains("credentials", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(validUrl, repository.GetOriginRemoteUrl());
+    }
+
+    private static SyncRepository CreateUnbornRepository(string path, string remotePath, string branchName)
+    {
+        var repository = new SyncRepository(path);
+        repository.Initialize();
+        repository.SetOriginRemoteUrl(remotePath);
+        ConfigureIdentity(repository.RepositoryPath);
+        Git.RunOrThrow(repository.RepositoryPath, ["symbolic-ref", "HEAD", $"refs/heads/{branchName}"]);
+        return repository;
     }
 
     private static SyncRepository CreateRepository(string path, string? remotePath = null)

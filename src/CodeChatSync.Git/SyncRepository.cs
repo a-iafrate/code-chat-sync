@@ -184,9 +184,7 @@ public sealed class SyncRepository(string repositoryPath, GitCommandRunner? runn
 
         if (!HasUpstream())
         {
-            return new PullOutcome(
-                PullStatus.NoUpstream,
-                "This branch has never been pushed, so there is nothing to pull yet.");
+            return PullWithoutUpstream();
         }
 
         var pull = _runner.Run(_repositoryPath, ["pull", "--ff-only"]);
@@ -195,8 +193,98 @@ public sealed class SyncRepository(string repositoryPath, GitCommandRunner? runn
             : new PullOutcome(PullStatus.Failed, pull.ErrorMessage);
     }
 
+    /// <summary>
+    /// Handles a branch without upstream: an empty remote means this is the first push,
+    /// while a remote that already has this branch (another PC pushed first) must be
+    /// pulled and tracked before any local change is made.
+    /// </summary>
+    private PullOutcome PullWithoutUpstream()
+    {
+        var fetch = _runner.Run(_repositoryPath, ["fetch", DefaultRemoteName]);
+        if (!fetch.Succeeded)
+        {
+            return new PullOutcome(
+                PullStatus.Failed,
+                $"Could not reach the sync remote to check for chats from other PCs:{Environment.NewLine}{fetch.ErrorMessage}");
+        }
+
+        var branch = _runner.Run(_repositoryPath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+        var branchName = branch.StandardOutput.Trim();
+        if (!branch.Succeeded || branchName.Length == 0)
+        {
+            return new PullOutcome(PullStatus.Failed, "The sync repository has no branch checked out.");
+        }
+
+        var remoteBranches = _runner.Run(
+            _repositoryPath,
+            ["for-each-ref", "--format=%(refname:strip=3)", $"refs/remotes/{DefaultRemoteName}/"]);
+        var names = remoteBranches.StandardOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(name => name.Trim())
+            .Where(name => name.Length > 0 && name != "HEAD")
+            .ToArray();
+
+        if (names.Length == 0)
+        {
+            return new PullOutcome(
+                PullStatus.NoUpstream,
+                "This branch has never been pushed, so there is nothing to pull yet.");
+        }
+
+        if (!names.Contains(branchName, StringComparer.Ordinal))
+        {
+            return new PullOutcome(
+                PullStatus.Failed,
+                $"The sync remote has chats on '{string.Join("', '", names)}' but not on the local branch '{branchName}'. "
+                + "Check out the remote branch in the sync folder so this PC does not publish a separate history.");
+        }
+
+        var pull = PullIntoBranch(branchName);
+        if (!pull.Succeeded)
+        {
+            return new PullOutcome(PullStatus.Failed, pull.ErrorMessage);
+        }
+
+        var track = _runner.Run(_repositoryPath, ["branch", $"--set-upstream-to={DefaultRemoteName}/{branchName}"]);
+        return track.Succeeded
+            ? new PullOutcome(PullStatus.UpToDate, pull.StandardOutput.Trim())
+            : new PullOutcome(PullStatus.Failed, track.ErrorMessage);
+    }
+
     private bool HasUpstream() =>
         _runner.Run(_repositoryPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).Succeeded;
+
+    /// <summary>
+    /// Fast-forwards <paramref name="branchName"/> from the remote. On a branch with no
+    /// commit yet, the untracked <c>.gitignore</c> written by <see cref="Initialize"/> would
+    /// block the checkout, so it is set aside and its backup entry merged back afterwards.
+    /// </summary>
+    private GitResult PullIntoBranch(string branchName)
+    {
+        string[] arguments = ["pull", "--ff-only", DefaultRemoteName, branchName];
+        var gitIgnorePath = Path.Combine(_repositoryPath, ".gitignore");
+        var hasCommit = _runner.Run(_repositoryPath, ["rev-parse", "--verify", "--quiet", "HEAD"]).Succeeded;
+        if (hasCommit || !File.Exists(gitIgnorePath))
+        {
+            return _runner.Run(_repositoryPath, arguments);
+        }
+
+        var original = File.ReadAllBytes(gitIgnorePath);
+        File.Delete(gitIgnorePath);
+        var pull = _runner.Run(_repositoryPath, arguments);
+        if (!pull.Succeeded)
+        {
+            if (!File.Exists(gitIgnorePath))
+            {
+                File.WriteAllBytes(gitIgnorePath, original);
+            }
+
+            return pull;
+        }
+
+        WriteGitIgnore();
+        return pull;
+    }
 
     /// <summary>
     /// Stages everything and commits. Returns <see langword="false"/> when there was

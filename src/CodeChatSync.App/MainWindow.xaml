@@ -404,7 +404,7 @@
 									</StackPanel>
 
 									<StackPanel x:Name="ClaudeAddPanel" Spacing="8" Visibility="Collapsed">
-										<TextBlock Text="Pick a project from your Claude Code projects folder. Only Git repository roots with a remote can be added; the same remote can also have Copilot chats. Close Claude Code completely (including node-hosted instances) first."
+										<TextBlock Text="Pick a project from your Claude Code projects folder. Only Git repository roots with a remote can be added; the same remote can also have Copilot chats. Close Claude Code completely (including node-hosted instances) first, unless Sync Claude Code while it is running is on in Settings > Advanced."
 												   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 										<Button x:Name="DiscoverClaudeButton" Content="Find Claude Code projects"
 												Click="OnDiscoverClaudeClick" />
@@ -540,7 +540,7 @@
 									<StackPanel Grid.Column="1" VerticalAlignment="Center">
 										<TextBlock Text="Sync Visual Studio while it is running" />
 										<TextBlock Style="{StaticResource CaptionStyle}"
-												   Text="Not recommended. Skips the check that waits for Visual Studio to close: Copilot chats under .vs are read and restored even while Visual Studio may be using them, which can archive incomplete chats or be overwritten by Visual Studio. Local files are still backed up before being replaced. Automatic sync still waits for Visual Studio to close. Saved on this PC." />
+												   Text="Not recommended. Skips the check that waits for Visual Studio to close: Copilot chats under .vs are read and restored even while Visual Studio may be using them, which can archive incomplete chats or be overwritten by Visual Studio. Local files are still backed up before being replaced. An open Visual Studio no longer holds back automatic sync. Saved on this PC." />
 									</StackPanel>
 									<ToggleSwitch x:Name="SkipVisualStudioCheckToggle" Grid.Column="2" MinWidth="0" VerticalAlignment="Center"
 												  Tag="visualstudio" Toggled="OnSkipRunningCheckToggled" />
@@ -561,7 +561,7 @@
 									<StackPanel Grid.Column="1" VerticalAlignment="Center">
 										<TextBlock Text="Sync Claude Code while it is running" />
 										<TextBlock Style="{StaticResource CaptionStyle}"
-												   Text="Not recommended. Skips the check that waits for Claude Code to close: transcripts are read and restored even while a session may be writing them, which can archive incomplete chats or overwrite changes. Local files are still backed up before being replaced. Automatic sync still waits for Claude Code to close. Saved on this PC." />
+												   Text="Not recommended. Skips the check that waits for Claude Code to close: transcripts are read and restored even while a session may be writing them, which can archive incomplete chats or overwrite changes. Local files are still backed up before being replaced. An open Claude Code no longer holds back automatic sync. Saved on this PC." />
 									</StackPanel>
 									<ToggleSwitch x:Name="SkipClaudeCheckToggle" Grid.Column="2" MinWidth="0" VerticalAlignment="Center"
 												  Tag="claudecode" Toggled="OnSkipRunningCheckToggled" />
@@ -661,7 +661,7 @@
 				<StackPanel x:Name="SetupHowPage" Spacing="12" Visibility="Collapsed">
 					<TextBlock TextWrapping="Wrap" Text="Good to know before the first sync:" FontWeight="SemiBold" />
 					<TextBlock TextWrapping="Wrap"
-							   Text="• CodeChatSync never touches chat files while Visual Studio or Claude Code is running. It waits until they close, then syncs automatically. Only the opt-outs under Advanced change this for manual syncs." />
+							   Text="• CodeChatSync never touches chat files while Visual Studio or Claude Code is running. It waits until they close, then syncs automatically. The opt-outs under Advanced let a tool stay open during syncs." />
 					<TextBlock TextWrapping="Wrap"
 							   Text="• Existing local chats are backed up before being overwritten, and nothing is deleted from the private repository." />
 					<TextBlock TextWrapping="Wrap"

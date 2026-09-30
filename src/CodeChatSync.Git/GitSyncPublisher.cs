@@ -18,15 +18,27 @@ public sealed class GitSyncPublisher(SyncRepository repository) : ISyncPublisher
 
     /// <summary>
     /// Builds a publisher for <paramref name="syncRootPath"/>, or returns
-    /// <see langword="null"/> with the reason when Git cannot be used there.
+    /// <see langword="null"/> with the reason when the folder is not a Git repository.
+    /// When the folder is a Git repository but Git cannot be used, the returned publisher
+    /// stops the run: syncing without pulling could restore stale chats.
     /// </summary>
-    public static GitSyncPublisher? TryCreate(string syncRootPath, out string? unavailableReason)
+    public static ISyncPublisher? TryCreate(string syncRootPath, out string? unavailableReason)
     {
         var repository = new SyncRepository(syncRootPath);
+        var isRepository = Directory.Exists(Path.Combine(syncRootPath, ".git"))
+            || File.Exists(Path.Combine(syncRootPath, ".git"));
 
         var availability = repository.CheckGitAvailability();
         if (!availability.IsAvailable)
         {
+            if (isRepository)
+            {
+                unavailableReason =
+                    $"Git is not available ({availability.Description}), so the sync repository cannot be pulled. "
+                    + "Install Git or fix its path, then sync again.";
+                return new BlockedPublisher(unavailableReason);
+            }
+
             unavailableReason = $"Git is not available ({availability.Description}); syncing files only.";
             return null;
         }
@@ -43,12 +55,20 @@ public sealed class GitSyncPublisher(SyncRepository repository) : ISyncPublisher
         }
         catch (GitCommandException exception)
         {
-            unavailableReason = $"Git is unusable here ({exception.Message}); syncing files only.";
-            return null;
+            unavailableReason = $"Git is unusable here ({exception.Message}); the sync repository cannot be pulled.";
+            return isRepository ? new BlockedPublisher(unavailableReason) : null;
         }
 
         unavailableReason = null;
         return new GitSyncPublisher(repository);
+    }
+
+    /// <summary>Stops every run before files are copied, reporting why Git cannot be used.</summary>
+    private sealed class BlockedPublisher(string reason) : ISyncPublisher
+    {
+        public SyncPublishResult PrepareForSync() => SyncPublishResult.Stop(reason);
+
+        public SyncPublishResult PublishChanges(int pushedCount) => SyncPublishResult.Stop(reason);
     }
 
     public SyncPublishResult PrepareForSync()

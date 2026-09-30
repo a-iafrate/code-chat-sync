@@ -18,7 +18,7 @@ public sealed class SyncHost : IAsyncDisposable
     private readonly VisualStudioChatProvider _visualStudioProvider;
     private readonly ClaudeCodeChatProvider _claudeProvider;
     private readonly SyncCoordinator _coordinator;
-    private readonly ProviderWatcher[] _watchers;
+    private readonly (string ProviderId, ProviderWatcher Watcher)[] _watchers;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly object _providerRunningLock = new();
 
@@ -33,12 +33,12 @@ public sealed class SyncHost : IAsyncDisposable
         _coordinator = new SyncCoordinator(CreateOrchestrator);
         _watchers =
         [
-            new ProviderWatcher(_processGuard, _visualStudioProvider.ProcessNames, watchOptions),
-            new ProviderWatcher(_processGuard, _claudeProvider.ProcessNames, watchOptions)
+            (_visualStudioProvider.Id, new ProviderWatcher(_processGuard, _visualStudioProvider.ProcessNames, watchOptions)),
+            (_claudeProvider.Id, new ProviderWatcher(_processGuard, _claudeProvider.ProcessNames, watchOptions))
         ];
 
         _coordinator.Completed += (_, outcome) => SyncCompleted?.Invoke(this, outcome);
-        foreach (var watcher in _watchers)
+        foreach (var (_, watcher) in _watchers)
         {
             watcher.ProviderRunningChanged += OnProviderRunningChanged;
             watcher.SyncRequested += OnSyncRequested;
@@ -48,11 +48,22 @@ public sealed class SyncHost : IAsyncDisposable
     /// <summary>Raised when a sync run finishes, from a background thread.</summary>
     public event EventHandler<SyncOutcome>? SyncCompleted;
 
-    /// <summary>Raised when either provider starts or stops; true while any provider is running.</summary>
+    /// <summary>Raised when the set of running, not skipped providers changes; true while any is running.</summary>
     public event EventHandler<bool>? ProviderRunningChanged;
 
-    /// <summary>Whether any registered chat provider was running at the last check.</summary>
-    public bool IsProviderRunning => _watchers.Any(watcher => watcher.IsProviderRunning);
+    /// <summary>
+    /// Whether a provider that automatic sync must wait for was running at the last check.
+    /// Providers whose running check is skipped on this PC do not count.
+    /// </summary>
+    public bool IsProviderRunning
+    {
+        get
+        {
+            var config = TryLoadConfig();
+            return _watchers.Any(entry => entry.Watcher.IsProviderRunning
+                && config?.IsRunningCheckSkipped(entry.ProviderId) != true);
+        }
+    }
 
     /// <summary>Whether a sync is in progress.</summary>
     public bool IsSyncing => _coordinator.IsRunning;
@@ -62,7 +73,7 @@ public sealed class SyncHost : IAsyncDisposable
 
     /// <summary>Starts watching for either provider closing.</summary>
     public void Start() => _watching ??= _watchers
-        .Select(watcher => watcher.WatchAsync(_cancellation.Token))
+        .Select(entry => entry.Watcher.WatchAsync(_cancellation.Token))
         .ToArray();
 
     /// <summary>Runs a sync now, for the tray's "Sync now" command.</summary>
@@ -140,7 +151,7 @@ public sealed class SyncHost : IAsyncDisposable
         }, _cancellation.Token);
 
     /// <summary>Records whether a provider's running check is skipped on this PC.</summary>
-    public Task<bool> SaveSkipRunningCheckAsync(string providerId, bool skip)
+    public async Task<bool> SaveSkipRunningCheckAsync(string providerId, bool skip)
     {
         if (!string.Equals(providerId, _visualStudioProvider.Id, StringComparison.OrdinalIgnoreCase)
             && !string.Equals(providerId, _claudeProvider.Id, StringComparison.OrdinalIgnoreCase))
@@ -148,7 +159,7 @@ public sealed class SyncHost : IAsyncDisposable
             throw new ArgumentException($"Unknown provider '{providerId}'.", nameof(providerId));
         }
 
-        return _coordinator.TryUpdateConfigurationAsync(() =>
+        var saved = await _coordinator.TryUpdateConfigurationAsync(() =>
         {
             var config = LocalConfig.Load();
             config.SkipRunningCheckProviderIds.RemoveAll(id =>
@@ -160,6 +171,13 @@ public sealed class SyncHost : IAsyncDisposable
 
             config.Save();
         }, _cancellation.Token);
+
+        if (saved)
+        {
+            OnProviderRunningChanged(this, skip);
+        }
+
+        return saved;
     }
 
     /// <summary>Process guard honoring this PC's current skip settings, for Claude project discovery.</summary>
@@ -228,6 +246,7 @@ public sealed class SyncHost : IAsyncDisposable
 
     private void OnSyncRequested(object? sender, WatchTriggerReason reason)
     {
+        // Providers skipped on this PC do not hold back the sync triggered by another one closing.
         if (IsProviderRunning)
         {
             return;
@@ -250,6 +269,22 @@ public sealed class SyncHost : IAsyncDisposable
         }
 
         _ = _coordinator.RunAsync(cancellationToken: _cancellation.Token);
+    }
+
+    /// <summary>
+    /// Reads the per-PC config for status decisions; an unreadable config skips nothing,
+    /// so automatic sync keeps waiting for every tool.
+    /// </summary>
+    private static LocalConfig? TryLoadConfig()
+    {
+        try
+        {
+            return LocalConfig.Load();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

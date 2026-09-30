@@ -31,7 +31,11 @@ the tray app's Claude project list.
 using the `git` you already have installed so your existing credential helper
 and SSH keys keep working. Add `--no-git` to copy files only. Pulls are
 fast-forward only: if the same chat changed on two PCs, the run stops and
-leaves both sides untouched instead of merging two transcripts.
+leaves both sides untouched instead of merging two transcripts. A sync never
+copies chats before the pull succeeds when the sync folder is a Git repository
+with a remote: on a new PC whose branch was never pushed, the remote branch is
+fetched and pulled first; if Git is missing or the remote cannot be reached,
+the run stops.
 
 ## Tray app
 
@@ -108,11 +112,13 @@ By default, a sync never touches a tool's chat files while that tool is
 running (Visual Studio chats are left alone; Claude Code discovery and sync are
 refused). *Settings > Advanced* offers two per-PC opt-outs, off by default and
 confirmed before enabling: *Sync Visual Studio while it is running* and *Sync
-Claude Code while it is running*. They apply to *Sync now*, per-project sync,
-and Claude project discovery: chats are then read and restored even while the
+Claude Code while it is running*. They apply to *Sync now* (window and tray),
+per-project sync, automatic sync, and Claude project discovery: chats are then read and restored even while the
 tool may be writing them, which can archive an incomplete chat or lose changes
 to a restored one. Local files are still backed up before being replaced.
-Automatic sync still waits for the tools to close.
+A skipped tool no longer holds back automatic sync (for example when Visual
+Studio closes while Claude Code is open), but a skipped tool that stays open
+does not trigger a sync by itself: use *Sync now*.
 The CLI `sync` command honors the same settings.
 
 ## Why

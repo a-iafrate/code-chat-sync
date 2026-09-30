@@ -153,7 +153,7 @@ internal static class SyncCommand
     /// <summary>
     /// Builds the Git publisher, or explains why this run will only copy files.
     /// </summary>
-    private static GitSyncPublisher? CreatePublisher(string syncRoot)
+    private static ISyncPublisher? CreatePublisher(string syncRoot)
     {
         var publisher = GitSyncPublisher.TryCreate(syncRoot, out var unavailableReason);
         if (unavailableReason is { Length: > 0 })
