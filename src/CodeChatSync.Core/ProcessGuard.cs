@@ -57,4 +57,28 @@ public sealed class ProcessGuard : IProcessGuard
 
         return running;
     }
+
+    /// <summary>
+    /// Returns the guard used for sync runs: the inner guard, except that the
+    /// process names of providers whose check the user skipped are never reported.
+    /// Watchers must keep using the real guard so automatic sync still waits for a close.
+    /// </summary>
+    public static IProcessGuard ForSync(IProcessGuard inner, LocalConfig config, IEnumerable<IChatProvider> providers)
+    {
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(providers);
+
+        var ignored = providers
+            .Where(provider => config.IsRunningCheckSkipped(provider.Id))
+            .SelectMany(provider => provider.ProcessNames)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return ignored.Count == 0 ? inner : new FilteringProcessGuard(inner, ignored);
+    }
+
+    private sealed class FilteringProcessGuard(IProcessGuard inner, HashSet<string> ignored) : IProcessGuard
+    {
+        public IReadOnlyList<string> GetRunningProcesses(IEnumerable<string> processNames) =>
+            inner.GetRunningProcesses(processNames.Where(name => !ignored.Contains(name)).ToArray());
+    }
 }

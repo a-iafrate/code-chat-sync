@@ -1,4 +1,5 @@
 using CodeChatSync.App.Services;
+using CodeChatSync.Core;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
@@ -27,6 +28,25 @@ public partial class App : Application
         _trayIcon = new TrayIconHost(_syncHost, DispatcherQueue.GetForCurrentThread());
         _trayIcon.ShowWindowRequested += (_, _) => ShowWindow();
         _trayIcon.ExitRequested += async (_, _) => await ExitAsync();
+
+        // A fresh install would otherwise only show a tray icon, leaving a new user
+        // with no hint of what to do; the window opens the setup guide.
+        if (IsFirstRun())
+        {
+            ShowWindow();
+        }
+    }
+
+    private static bool IsFirstRun()
+    {
+        try
+        {
+            return GettingStarted.ShouldOpenWizardAutomatically(LocalConfig.Load());
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

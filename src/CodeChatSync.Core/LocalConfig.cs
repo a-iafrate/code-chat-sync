@@ -63,8 +63,27 @@ public sealed class LocalConfig
     [JsonConverter(typeof(JsonStringEnumConverter<ThemePreference>))]
     public ThemePreference ThemePreference { get; set; } = ThemePreference.System;
 
+    /// <summary>Whether the first-run setup wizard was finished or skipped on this PC.</summary>
+    [JsonPropertyName("onboardingWizardSeen")]
+    public bool OnboardingWizardSeen { get; set; }
+
+    /// <summary>Whether the user hid the "Get started" checklist on this PC.</summary>
+    [JsonPropertyName("gettingStartedDismissed")]
+    public bool GettingStartedDismissed { get; set; }
+
     /// <summary>
-    /// Overrides where this PC's configuration and baselines are stored. Set it to
+    /// Providers whose "tool is running" check is skipped on this PC, at the user's
+    /// explicit request. Their chat data is then read and written even while the
+    /// tool is open, which risks torn or lost transcripts; local backups still apply.
+    /// </summary>
+    [JsonPropertyName("skipRunningCheckProviderIds")]
+    public List<string> SkipRunningCheckProviderIds { get; set; } = [];
+
+    public bool IsRunningCheckSkipped(string providerId) =>
+        SkipRunningCheckProviderIds.Contains(providerId, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Overrides
     /// keep a run — an end-to-end test, or a portable install — away from the
     /// current user's real configuration.
     /// </summary>

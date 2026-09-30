@@ -68,15 +68,18 @@ internal static class SyncCommand
         Console.WriteLine();
 
         var processGuard = new ProcessGuard();
+        var visualStudioProvider = new VisualStudioChatProvider();
+        var syncGuard = ProcessGuard.ForSync(
+            processGuard, localConfig, [visualStudioProvider, new ClaudeCodeChatProvider(processGuard)]);
         var providers = new IChatProvider[]
         {
-            new VisualStudioChatProvider(),
-            new ClaudeCodeChatProvider(processGuard)
+            visualStudioProvider,
+            new ClaudeCodeChatProvider(syncGuard)
         };
         var orchestrator = new SyncOrchestrator(
             providers,
             new SyncWorkspace(localConfig, SharedConfig.Load(syncRoot)),
-            new ChatSyncService(processGuard),
+            new ChatSyncService(syncGuard),
             publisher);
 
         SyncRunResult result;

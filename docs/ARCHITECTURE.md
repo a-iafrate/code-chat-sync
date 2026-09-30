@@ -22,7 +22,13 @@ repo; no sync-tool file should ever end up in a client repo.
   `watch` trigger).
 - **Sync only while the tool is closed.** Never write while the provider's
   process (e.g. `devenv.exe`) is running, to avoid reading/writing files
-  that are in use or getting corrupted.
+  that are in use or getting corrupted. The only exception is an explicit,
+  per-PC opt-out (`skipRunningCheckProviderIds` in the local config,
+  currently exposed only for Claude Code under *Settings > Advanced*):
+  `ProcessGuard.ForSync` wraps the real guard so manual syncs and discovery
+  ignore that provider's processes. The provider-close watcher keeps using
+  the real guard, so automatic sync still waits for every tool to close;
+  backups before overwrite stay active.
 - **Backup before overwrite.** Every local restore backs up the existing
   file before replacing it.
 - **Storage: the user's own private Git repo.** No third-party service, no
@@ -407,7 +413,28 @@ anything new.
 
 The app deliberately starts **without showing a window**: it belongs in the
 tray, and opening a window on every login would be intrusive. The window is
-created on demand, the first time it is asked for.
+created on demand, the first time it is asked for. The one exception is a
+fresh install (no sync folder, no projects, setup wizard never seen): the
+window opens by itself with the setup guide, otherwise a new user would only
+see a tray icon. Closing the window never ends the process
+(`DispatcherShutdownMode.OnExplicitShutdown`); only *Exit* in the tray does.
+
+First-run guidance has three parts, all in the App with the decision logic in
+`CodeChatSync.Core.GettingStarted` (unit-tested):
+
+- **Setup wizard** (`ContentDialog`): welcome, sync repository (folder, optional
+  `origin`, initialize), Visual Studio projects, how syncing works, finish with
+  optional first sync and tour. It opens automatically only on a fresh install;
+  finishing or skipping records `onboardingWizardSeen` in the per-PC config.
+- **Get started checklist** on the Sync page: sync folder, optional remote,
+  first project, first sync. It is derived from the configuration and baseline
+  files, highlights the next required step, and hides when the required steps
+  are done or the user chooses *Hide* (`gettingStartedDismissed`).
+- **Contextual hints**: a `TeachingTip` that points at the relevant control for
+  each checklist step, and a six-step guided tour of the window.
+
+*Settings > Help* reopens the wizard (also showing the checklist again) or the
+tour. Both flags are per-PC and never synced.
 
 Showing it needs more than `Window.Activate()`. Windows only lets a process
 change the foreground window when it already owns it, which is not the case

@@ -86,7 +86,7 @@ public sealed class SyncHost : IAsyncDisposable
     public Task<bool> AddClaudeProjectAsync(string path) =>
         _coordinator.TryUpdateConfigurationAsync(() =>
         {
-            var candidate = ClaudeProjectDiscovery.DiscoverCandidates(_processGuard)
+            var candidate = ClaudeProjectDiscovery.DiscoverCandidates(CreateDiscoveryProcessGuard())
                 .FirstOrDefault(item => string.Equals(item.LocalPath, path, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException("The selected Claude Code project is no longer available. Refresh the list.");
             if (!candidate.LocalPathExists || candidate.HasStorageCollision
@@ -128,6 +128,35 @@ public sealed class SyncHost : IAsyncDisposable
             config.ThemePreference = preference;
             config.Save();
         }, _cancellation.Token);
+
+    /// <summary>Records first-run guidance choices on this PC; null leaves a flag unchanged.</summary>
+    public Task<bool> SaveOnboardingStateAsync(bool? wizardSeen = null, bool? checklistDismissed = null) =>
+        _coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            var config = LocalConfig.Load();
+            config.OnboardingWizardSeen = wizardSeen ?? config.OnboardingWizardSeen;
+            config.GettingStartedDismissed = checklistDismissed ?? config.GettingStartedDismissed;
+            config.Save();
+        }, _cancellation.Token);
+
+    /// <summary>Records whether Claude Code's running check is skipped on this PC.</summary>
+    public Task<bool> SaveSkipClaudeRunningCheckAsync(bool skip) =>
+        _coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            var config = LocalConfig.Load();
+            config.SkipRunningCheckProviderIds.RemoveAll(id =>
+                string.Equals(id, _claudeProvider.Id, StringComparison.OrdinalIgnoreCase));
+            if (skip)
+            {
+                config.SkipRunningCheckProviderIds.Add(_claudeProvider.Id);
+            }
+
+            config.Save();
+        }, _cancellation.Token);
+
+    /// <summary>Process guard honoring this PC's current skip settings, for Claude project discovery.</summary>
+    public IProcessGuard CreateDiscoveryProcessGuard() =>
+        ProcessGuard.ForSync(_processGuard, LocalConfig.Load(), [_claudeProvider]);
 
     /// <summary>Updates settings without racing an active sync run.</summary>
     public Task<bool> SaveSettingsAsync(string folder, string? remote, bool initialize) =>
@@ -235,11 +264,13 @@ public sealed class SyncHost : IAsyncDisposable
         }
 
         var publisher = GitSyncPublisher.TryCreate(syncRoot, out _);
+        var syncGuard = ProcessGuard.ForSync(_processGuard, localConfig, [_visualStudioProvider, _claudeProvider]);
 
+        // The Claude provider checks the guard itself, so it is rebuilt with this run's guard.
         return new SyncOrchestrator(
-            [_visualStudioProvider, _claudeProvider],
+            [_visualStudioProvider, new ClaudeCodeChatProvider(syncGuard)],
             new SyncWorkspace(localConfig, SharedConfig.Load(syncRoot)),
-            new ChatSyncService(_processGuard),
+            new ChatSyncService(syncGuard),
             publisher);
     }
 }

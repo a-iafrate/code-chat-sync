@@ -60,6 +60,12 @@
 				<Setter Property="VerticalAlignment" Value="Center" />
 				<Setter Property="Margin" Value="0,0,16,0" />
 			</Style>
+			<Style x:Key="StepDoneIconStyle" TargetType="FontIcon">
+				<Setter Property="Foreground" Value="{ThemeResource SystemFillColorSuccessBrush}" />
+			</Style>
+			<Style x:Key="StepPendingIconStyle" TargetType="FontIcon">
+				<Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+			</Style>
 		</Grid.Resources>
 		<Grid.RowDefinitions>
 			<RowDefinition Height="48" />
@@ -81,7 +87,15 @@
 		<NavigationView x:Name="NavView" Grid.Row="1"
 						PaneDisplayMode="Left" OpenPaneLength="240"
 						IsBackButtonVisible="Collapsed" IsPaneToggleButtonVisible="False"
-						IsSettingsVisible="True" SelectionChanged="OnNavigationSelectionChanged">
+						IsSettingsVisible="False" SelectionChanged="OnNavigationSelectionChanged">
+									<!-- A custom item: the built-in Settings item follows the OS language, while the UI is English. -->
+									<NavigationView.FooterMenuItems>
+										<NavigationViewItem x:Name="SettingsNavItem" Content="Settings" Tag="settings">
+											<NavigationViewItem.Icon>
+												<FontIcon Glyph="&#xE713;" />
+											</NavigationViewItem.Icon>
+										</NavigationViewItem>
+									</NavigationView.FooterMenuItems>
 			<NavigationView.MenuItems>
 				<NavigationViewItem x:Name="SyncNavItem" Content="Sync" Tag="sync">
 					<NavigationViewItem.Icon>
@@ -111,6 +125,91 @@
 					<Grid Padding="40,28,40,48">
 						<StackPanel Spacing="4">
 							<TextBlock Text="Sync" Style="{StaticResource PageTitleStyle}" Margin="0,0,0,20" />
+
+							<Border x:Name="GettingStartedCard" Visibility="Collapsed" Margin="0,0,0,16"
+									Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+									BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+									BorderThickness="1" CornerRadius="8" Padding="20">
+								<StackPanel Spacing="12">
+									<Grid ColumnSpacing="12">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="*" />
+											<ColumnDefinition Width="Auto" />
+										</Grid.ColumnDefinitions>
+										<StackPanel>
+											<TextBlock Text="Get started" FontSize="20" LineHeight="28" FontWeight="SemiBold" />
+											<TextBlock x:Name="GettingStartedSummaryText" Style="{StaticResource CaptionStyle}" FontSize="14" LineHeight="20" />
+										</StackPanel>
+										<StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+											<Button Content="Open setup guide" Click="OnOpenSetupGuideClick" />
+											<Button Content="Hide" Style="{StaticResource SubtleButtonStyle}" Click="OnHideGettingStartedClick"
+													ToolTipService.ToolTip="Hide this checklist. Reopen it from Settings &gt; Help." />
+										</StackPanel>
+									</Grid>
+									<ProgressBar x:Name="GettingStartedProgressBar" Maximum="4" />
+
+									<Grid ColumnSpacing="16">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="Auto" />
+											<ColumnDefinition Width="*" />
+											<ColumnDefinition Width="Auto" />
+										</Grid.ColumnDefinitions>
+										<FontIcon x:Name="FolderStepIcon" Glyph="&#xEA3A;" FontSize="18" VerticalAlignment="Center" />
+										<StackPanel Grid.Column="1" VerticalAlignment="Center">
+											<TextBlock Text="1. Choose a private sync folder" />
+											<TextBlock Text="A dedicated local Git repository that stores archived chats. Never a client project folder."
+													   Style="{StaticResource CaptionStyle}" />
+										</StackPanel>
+										<Button x:Name="FolderStepButton" Grid.Column="2" Content="Choose folder"
+												VerticalAlignment="Center" Click="OnFolderStepClick" />
+									</Grid>
+									<Grid ColumnSpacing="16">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="Auto" />
+											<ColumnDefinition Width="*" />
+											<ColumnDefinition Width="Auto" />
+										</Grid.ColumnDefinitions>
+										<FontIcon x:Name="RemoteStepIcon" Glyph="&#xEA3A;" FontSize="18" VerticalAlignment="Center" />
+										<StackPanel Grid.Column="1" VerticalAlignment="Center">
+											<TextBlock Text="2. Connect a private Git remote (optional)" />
+											<TextBlock Text="Push chats to your private GitHub or Azure DevOps repository so your other PCs receive them."
+													   Style="{StaticResource CaptionStyle}" />
+										</StackPanel>
+										<Button x:Name="RemoteStepButton" Grid.Column="2" Content="Set remote"
+												VerticalAlignment="Center" Click="OnRemoteStepClick" />
+									</Grid>
+									<Grid ColumnSpacing="16">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="Auto" />
+											<ColumnDefinition Width="*" />
+											<ColumnDefinition Width="Auto" />
+										</Grid.ColumnDefinitions>
+										<FontIcon x:Name="ProjectStepIcon" Glyph="&#xEA3A;" FontSize="18" VerticalAlignment="Center" />
+										<StackPanel Grid.Column="1" VerticalAlignment="Center">
+											<TextBlock Text="3. Add a project" />
+											<TextBlock Text="Pick a Visual Studio (Copilot) or Claude Code project. Projects are matched across PCs by their Git remote."
+													   Style="{StaticResource CaptionStyle}" />
+										</StackPanel>
+										<Button x:Name="ProjectStepButton" Grid.Column="2" Content="Add project"
+												VerticalAlignment="Center" Click="OnProjectStepClick" />
+									</Grid>
+									<Grid ColumnSpacing="16">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="Auto" />
+											<ColumnDefinition Width="*" />
+											<ColumnDefinition Width="Auto" />
+										</Grid.ColumnDefinitions>
+										<FontIcon x:Name="SyncStepIcon" Glyph="&#xEA3A;" FontSize="18" VerticalAlignment="Center" />
+										<StackPanel Grid.Column="1" VerticalAlignment="Center">
+											<TextBlock Text="4. Run your first sync" />
+											<TextBlock Text="Close Visual Studio and Claude Code, then choose Sync now. Later syncs run by themselves."
+													   Style="{StaticResource CaptionStyle}" />
+										</StackPanel>
+										<Button x:Name="SyncStepButton" Grid.Column="2" Content="Show me"
+												VerticalAlignment="Center" Click="OnSyncStepClick" />
+									</Grid>
+								</StackPanel>
+							</Border>
 
 							<Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
 									BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -288,7 +387,7 @@
 								</StackPanel>
 							</Expander>
 
-							<TextBlock Text="Chats to restore on this PC" FontSize="20" LineHeight="28" FontWeight="SemiBold" Margin="0,32,0,4" />
+							<TextBlock x:Name="RestoreSectionTitle" Text="Chats to restore on this PC" FontSize="20" LineHeight="28" FontWeight="SemiBold" Margin="0,32,0,4" />
 							<TextBlock Text="Uncheck Restore on this PC beside a project, then save, to exclude all its archived chats from restores here. Expand it to select individual chats instead. The Git clone, uploads, and existing local chats are unaffected."
 									   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 							<TextBlock Text="Claude Code restores currently require the same project path on both PCs. Chats with another or missing cwd are skipped."
@@ -401,10 +500,139 @@
 								</Grid>
 							</Border>
 							<InfoBar x:Name="ThemeInfoBar" IsOpen="False" IsClosable="True" />
+
+							<TextBlock Text="Advanced" Style="{StaticResource SectionTitleStyle}" />
+							<Border Style="{StaticResource CardStyle}">
+								<Grid ColumnSpacing="8">
+									<Grid.ColumnDefinitions>
+										<ColumnDefinition Width="Auto" />
+										<ColumnDefinition Width="*" />
+										<ColumnDefinition Width="Auto" />
+									</Grid.ColumnDefinitions>
+									<FontIcon Glyph="&#xE7BA;" Style="{StaticResource CardIconStyle}" Margin="0,0,8,0"
+											  Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+									<StackPanel Grid.Column="1" VerticalAlignment="Center">
+										<TextBlock Text="Sync Claude Code while it is running" />
+										<TextBlock Style="{StaticResource CaptionStyle}"
+												   Text="Not recommended. Skips the check that waits for Claude Code to close: transcripts are read and restored even while a session may be writing them, which can archive incomplete chats or overwrite changes. Local files are still backed up before being replaced. Saved on this PC." />
+									</StackPanel>
+									<ToggleSwitch x:Name="SkipClaudeCheckToggle" Grid.Column="2" MinWidth="0" VerticalAlignment="Center"
+												  Toggled="OnSkipClaudeCheckToggled" />
+								</Grid>
+							</Border>
+							<InfoBar x:Name="SkipClaudeCheckInfoBar" IsOpen="False" IsClosable="False" Severity="Warning"
+									 Title="Claude Code running check is off"
+									 Message="Chats sync even while Claude Code is open. Close Claude Code before syncing whenever you can." />
+
+							<TextBlock Text="Help" Style="{StaticResource SectionTitleStyle}" />
+							<Border Style="{StaticResource CardStyle}">
+								<Grid ColumnSpacing="8">
+									<Grid.ColumnDefinitions>
+										<ColumnDefinition Width="Auto" />
+										<ColumnDefinition Width="*" />
+										<ColumnDefinition Width="Auto" />
+									</Grid.ColumnDefinitions>
+									<FontIcon Glyph="&#xE897;" Style="{StaticResource CardIconStyle}" Margin="0,0,8,0" />
+									<StackPanel Grid.Column="1" VerticalAlignment="Center">
+										<TextBlock Text="Setup guide and tour" />
+										<TextBlock Text="Walk through setup again, show the Get started checklist on the Sync page, or take a quick tour of the window."
+												   Style="{StaticResource CaptionStyle}" />
+									</StackPanel>
+									<StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+										<Button x:Name="OpenSetupGuideButton" Content="Open setup guide" Click="OnOpenSetupGuideClick" />
+										<Button Content="Take the tour" Click="OnStartTourClick" />
+									</StackPanel>
+								</Grid>
+							</Border>
 						</StackPanel>
 					</Grid>
 				</ScrollViewer>
 			</Grid>
 		</NavigationView>
+
+		<!-- Contextual hints: one tip retargeted for the tour and for checklist actions. -->
+		<TeachingTip x:Name="GuideTip" Grid.Row="1" PreferredPlacement="Auto" IsLightDismissEnabled="False"
+					 ActionButtonClick="OnGuideTipActionClick" CloseButtonClick="OnGuideTipCloseClick" Closed="OnGuideTipClosed" />
+
+		<!-- First-run setup wizard. -->
+		<ContentDialog x:Name="SetupDialog" Grid.Row="1" DefaultButton="Primary"
+					   PrimaryButtonClick="OnSetupPrimaryClick" SecondaryButtonClick="OnSetupSecondaryClick">
+			<StackPanel Width="480" Spacing="12">
+				<TextBlock x:Name="SetupStepText" Style="{StaticResource CaptionStyle}" />
+
+				<StackPanel x:Name="SetupWelcomePage" Spacing="12">
+					<TextBlock TextWrapping="Wrap"
+							   Text="CodeChatSync keeps your AI chats (Copilot in Visual Studio and Claude Code) in sync across your PCs through a private Git repository that you own. Chats never go into your client repositories." />
+					<TextBlock Text="Setup takes three steps:" FontWeight="SemiBold" />
+					<TextBlock TextWrapping="Wrap" Text="1. Choose a private sync folder and, optionally, its Git remote." />
+					<TextBlock TextWrapping="Wrap" Text="2. Add the projects whose chats you want to sync." />
+					<TextBlock TextWrapping="Wrap" Text="3. Run the first sync. After that, chats sync by themselves when the chat tools close." />
+					<TextBlock Style="{StaticResource CaptionStyle}"
+							   Text="You can skip this guide and reopen it any time from Settings &gt; Help." />
+				</StackPanel>
+
+				<StackPanel x:Name="SetupRepositoryPage" Spacing="12" Visibility="Collapsed">
+					<TextBlock TextWrapping="Wrap"
+							   Text="Archived chats live in a local folder that is a Git repository dedicated to CodeChatSync. Never choose a client project folder." />
+					<TextBlock Style="{StaticResource CaptionStyle}"
+							   Text="First PC: choose a new empty folder and keep Initialize on. Other PCs: clone your private chat repository first (git clone), then choose that folder." />
+					<Grid ColumnSpacing="8">
+						<Grid.ColumnDefinitions>
+							<ColumnDefinition Width="*" />
+							<ColumnDefinition Width="Auto" />
+						</Grid.ColumnDefinitions>
+						<TextBox x:Name="SetupFolderTextBox" Header="Local sync folder"
+								 PlaceholderText="For example C:\chats\my-chat-sync" />
+						<Button Grid.Column="1" Content="Browse…" VerticalAlignment="Bottom" Click="OnSetupBrowseFolderClick" />
+					</Grid>
+					<TextBox x:Name="SetupRemoteTextBox" Header="Git origin URL (optional)"
+							 PlaceholderText="https://github.com/owner/my-chats" />
+					<TextBlock Style="{StaticResource CaptionStyle}"
+							   Text="Create an empty private repository on GitHub or Azure DevOps and paste its URL. Sign-in is handled by Git's credential helper; never put a password in the URL. Leave it blank to keep chats on this PC for now." />
+					<CheckBox x:Name="SetupInitializeCheckBox" IsChecked="True"
+							  Content="Initialize as a Git repository if needed" />
+				</StackPanel>
+
+				<StackPanel x:Name="SetupProjectPage" Spacing="12" Visibility="Collapsed">
+					<TextBlock TextWrapping="Wrap"
+							   Text="Add the Visual Studio projects whose Copilot chats you want to sync. Choose any folder inside the project's Git repository: its Git remote identifies the project on every PC, whatever its local path." />
+					<Grid ColumnSpacing="8">
+						<Grid.ColumnDefinitions>
+							<ColumnDefinition Width="*" />
+							<ColumnDefinition Width="Auto" />
+						</Grid.ColumnDefinitions>
+						<TextBox x:Name="SetupProjectTextBox" Header="Visual Studio project folder"
+								 PlaceholderText="Folder inside the project's Git repository" />
+						<Button Grid.Column="1" Content="Browse…" VerticalAlignment="Bottom" Click="OnSetupBrowseProjectClick" />
+					</Grid>
+					<Button x:Name="SetupAddProjectButton" Content="Add project" Click="OnSetupAddProjectClick" />
+					<TextBlock x:Name="SetupProjectsText" TextWrapping="Wrap" />
+					<TextBlock Style="{StaticResource CaptionStyle}"
+							   Text="Using Claude Code? Add its projects later from Projects &gt; Add a project &gt; Claude Code: CodeChatSync lists the projects found in your Claude Code folder. One project can sync both Copilot and Claude Code chats. You can also skip this step and add projects later." />
+				</StackPanel>
+
+				<StackPanel x:Name="SetupHowPage" Spacing="12" Visibility="Collapsed">
+					<TextBlock TextWrapping="Wrap" Text="Good to know before the first sync:" FontWeight="SemiBold" />
+					<TextBlock TextWrapping="Wrap"
+							   Text="• CodeChatSync never touches chat files while Visual Studio or Claude Code is running. It waits until they close, then syncs automatically." />
+					<TextBlock TextWrapping="Wrap"
+							   Text="• Existing local chats are backed up before being overwritten, and nothing is deleted from the private repository." />
+					<TextBlock TextWrapping="Wrap"
+							   Text="• By default every archived chat is restored on each PC. Under Projects &gt; Chats to restore on this PC you can choose which ones come back here." />
+					<TextBlock TextWrapping="Wrap"
+							   Text="• CodeChatSync keeps running in the notification area. Open this window from its tray icon." />
+				</StackPanel>
+
+				<StackPanel x:Name="SetupDonePage" Spacing="12" Visibility="Collapsed">
+					<TextBlock x:Name="SetupDoneText" TextWrapping="Wrap" />
+					<CheckBox x:Name="SetupRunSyncCheckBox" Content="Run the first sync now" />
+					<CheckBox x:Name="SetupTourCheckBox" IsChecked="True" Content="Show me around the window" />
+					<TextBlock Style="{StaticResource CaptionStyle}"
+							   Text="The Get started checklist on the Sync page tracks what is left to do." />
+				</StackPanel>
+
+				<InfoBar x:Name="SetupInfoBar" IsOpen="False" IsClosable="True" />
+			</StackPanel>
+		</ContentDialog>
 	</Grid>
 </Window>

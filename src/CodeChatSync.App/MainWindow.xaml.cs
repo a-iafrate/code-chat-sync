@@ -20,6 +20,7 @@ public sealed partial class MainWindow : Window
 
 	private readonly SyncHost _syncHost;
 	private string? _loadedFolder;
+	private string? _loadedOrigin;
 	private string? _configuredFolder;
 	private bool _loadingSettings;
 	private bool _manualSyncRunning;
@@ -34,14 +35,6 @@ public sealed partial class MainWindow : Window
 
 		ExtendsContentIntoTitleBar = true;
 		SetTitleBar(AppTitleBar);
-		// The built-in Settings item follows the OS language; keep the UI consistently in English.
-		NavView.Loaded += (_, _) =>
-		{
-			if (NavView.SettingsItem is NavigationViewItem settingsItem)
-			{
-				settingsItem.Content = "Settings";
-			}
-		};
 		if (File.Exists(AppIcons.AppIconPath))
 		{
 			AppWindow.SetIcon(AppIcons.AppIconPath);
@@ -50,6 +43,7 @@ public sealed partial class MainWindow : Window
 		_syncHost.SyncCompleted += OnSyncCompleted;
 		_syncHost.ProviderRunningChanged += OnProviderRunningChanged;
 		Closed += OnClosed;
+		WindowRoot.Loaded += OnWindowRootLoaded;
 
 		NavView.SelectedItem = SyncNavItem;
 		if (_syncHost.LastOutcome is { } lastOutcome)
@@ -63,7 +57,7 @@ public sealed partial class MainWindow : Window
 
 	private void OnNavigationSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
 	{
-		var page = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag as string;
+		var page = (args.SelectedItem as NavigationViewItem)?.Tag as string;
 		SyncPage.Visibility = page == "sync" ? Visibility.Visible : Visibility.Collapsed;
 		ProjectsPage.Visibility = page == "projects" ? Visibility.Visible : Visibility.Collapsed;
 		SettingsPage.Visibility = page == "settings" ? Visibility.Visible : Visibility.Collapsed;
@@ -78,9 +72,12 @@ public sealed partial class MainWindow : Window
 		_loadingSettings = true;
 		SessionSelectionPanel.Children.Clear();
 		_sessionGroups.Clear();
+		LocalConfig? config = null;
+		var remoteConnected = false;
+		var anyProjectSynced = false;
 		try
 		{
-			var config = LocalConfig.Load();
+			config = LocalConfig.Load();
 			ThemeComboBox.SelectedIndex = config.ThemePreference switch
 			{
 				ThemePreference.System => 0,
@@ -90,11 +87,14 @@ public sealed partial class MainWindow : Window
 			};
 			ApplyTheme(config.ThemePreference);
 			AutomaticSyncToggle.IsOn = config.AutomaticSyncOnProviderClose;
+			SkipClaudeCheckToggle.IsOn = config.IsRunningCheckSkipped(ClaudeProviderId);
+			SkipClaudeCheckInfoBar.IsOpen = SkipClaudeCheckToggle.IsOn;
 			_loadedFolder = config.SyncRootPath;
 			_configuredFolder = config.SyncRootPath;
 			SyncFolderTextBox.Text = config.SyncRootPath ?? string.Empty;
 			FolderSummaryText.Text = config.SyncRootPath ?? "Not configured";
 			RemoteTextBox.Text = string.Empty;
+			_loadedOrigin = null;
 			RepositorySummaryText.Text = "No remote set";
 			ProjectsCountText.Text = config.Projects.Count > 0 ? config.Projects.Count.ToString() : string.Empty;
 			if (config.SyncRootPath is not { Length: > 0 } folder)
@@ -119,6 +119,8 @@ public sealed partial class MainWindow : Window
 				RemoteTextBox.Text = origin;
 				if (origin.Length > 0)
 				{
+					_loadedOrigin = origin;
+					remoteConnected = true;
 					RepositorySummaryText.Text = ShortenRemote(origin);
 				}
 			}
@@ -127,7 +129,7 @@ public sealed partial class MainWindow : Window
 				ShowSettingsMessage("This folder is not a Git repository. Turn on Initialize to add an origin remote.", InfoBarSeverity.Warning);
 			}
 
-			await LoadSessionsAsync(config, folder);
+			anyProjectSynced = await LoadSessionsAsync(config, folder);
 			return true;
 		}
 		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
@@ -140,6 +142,11 @@ public sealed partial class MainWindow : Window
 		{
 			_loadingSettings = false;
 			SaveSettingsButton.IsEnabled = true;
+			if (config is not null)
+			{
+				UpdateGettingStarted(config, remoteConnected, anyProjectSynced);
+			}
+
 			UpdateStatus();
 		}
 	}
@@ -296,6 +303,66 @@ public sealed partial class MainWindow : Window
 		_loadingSettings = false;
 	}
 
+	private async void OnSkipClaudeCheckToggled(object sender, RoutedEventArgs e)
+	{
+		if (_loadingSettings)
+		{
+			return;
+		}
+
+		var skip = SkipClaudeCheckToggle.IsOn;
+		SkipClaudeCheckToggle.IsEnabled = false;
+		try
+		{
+			if (skip)
+			{
+				var confirm = new ContentDialog
+				{
+					XamlRoot = Content.XamlRoot,
+					RequestedTheme = WindowRoot.ActualTheme,
+					Title = "Sync Claude Code while it is running?",
+					Content = "CodeChatSync will read and overwrite Claude Code transcripts even while Claude Code is open. "
+						+ "A session writing at the same time can leave an incomplete chat in the archive, or lose the changes made to a restored chat. "
+						+ "Local files are still backed up before being replaced.",
+					PrimaryButtonText = "Turn off the check",
+					CloseButtonText = "Cancel",
+					DefaultButton = ContentDialogButton.Close
+				};
+				if (await confirm.ShowAsync() != ContentDialogResult.Primary)
+				{
+					RevertSkipClaudeCheckToggle(false);
+					return;
+				}
+			}
+
+			if (!await _syncHost.SaveSkipClaudeRunningCheckAsync(skip))
+			{
+				RevertSkipClaudeCheckToggle(!skip);
+				ShowSettingsMessage("A sync is in progress. Try again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			SkipClaudeCheckInfoBar.IsOpen = skip;
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or ArgumentException or InvalidDataException or NotSupportedException)
+		{
+			RevertSkipClaudeCheckToggle(!skip);
+			ShowSettingsMessage($"Could not save the Claude Code setting: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			SkipClaudeCheckToggle.IsEnabled = true;
+		}
+	}
+
+	private void RevertSkipClaudeCheckToggle(bool value)
+	{
+		_loadingSettings = true;
+		SkipClaudeCheckToggle.IsOn = value;
+		_loadingSettings = false;
+	}
+
 	private void ShowAutomaticSyncMessage(string message, InfoBarSeverity severity)
 	{
 		AutomaticSyncInfoBar.Message = message;
@@ -430,7 +497,8 @@ public sealed partial class MainWindow : Window
 		ClaudeCandidatePanel.Children.Clear();
 		try
 		{
-			var candidates = await Task.Run(() => ClaudeProjectDiscovery.DiscoverCandidates(new ProcessGuard())
+			var processGuard = _syncHost.CreateDiscoveryProcessGuard();
+			var candidates = await Task.Run(() => ClaudeProjectDiscovery.DiscoverCandidates(processGuard)
 				.Select(candidate =>
 				{
 					var root = candidate.LocalPathExists ? GitRemoteReader.FindRepositoryRoot(candidate.LocalPath) : null;
@@ -631,7 +699,8 @@ public sealed partial class MainWindow : Window
 		};
 	}
 
-	private async Task LoadSessionsAsync(LocalConfig config, string syncRoot)
+	/// <summary>Builds the project and restore rows; returns whether any project has synced on this PC.</summary>
+	private async Task<bool> LoadSessionsAsync(LocalConfig config, string syncRoot)
 	{
 		var groups = await Task.Run(() =>
 		{
@@ -681,7 +750,7 @@ public sealed partial class MainWindow : Window
 		{
 			ProjectsPanel.Children.Add(CreateHintCard("No projects registered yet. Expand Add a project below to get started."));
 			SessionSelectionPanel.Children.Add(CreateHintCard("Add a project above to choose its chats."));
-			return;
+			return false;
 		}
 
 		foreach (var group in groups)
@@ -691,6 +760,8 @@ public sealed partial class MainWindow : Window
 			SessionSelectionPanel.Children.Add(CreateRestoreRow(group.ProviderId, group.Project, group.Name,
 				group.Selection, group.Sessions));
 		}
+
+		return groups.Any(group => group.LastRunUtc is not null);
 	}
 
 	private Expander CreateProjectRow(string providerId, ProjectIdentity project, string name,
@@ -1030,7 +1101,9 @@ public sealed partial class MainWindow : Window
 		SettingsInfoBar.IsOpen = true;
 	}
 
-	private async void OnSyncNowClick(object sender, RoutedEventArgs e)
+	private async void OnSyncNowClick(object sender, RoutedEventArgs e) => await RunSyncNowAsync();
+
+	private async Task RunSyncNowAsync()
 	{
 		_manualSyncRunning = true;
 		UpdateStatus();
@@ -1056,6 +1129,7 @@ public sealed partial class MainWindow : Window
 	{
 		_lastOutcomeTime = DateTime.Now;
 		LastRunText.Text = $"{_lastOutcomeTime:g} · {outcome.Status}: {outcome.Summary}";
+		MarkFirstSyncCompleted(outcome);
 		UpdateStatus();
 	}
 

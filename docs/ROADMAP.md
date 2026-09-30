@@ -78,7 +78,12 @@ without a recorded repository still need validation.
       show Visual Studio (Copilot) explicitly, and the window sections are separated.
 - [x] Window redesigned after `docs/CodeChatSync Settings.html`: Sync, Projects,
       and Settings pages in a left navigation pane, Windows 11 styling
+- [x] First-run guidance: setup wizard on a fresh install, Get started
+      checklist on the Sync page, contextual hints and a guided tour; all
+      reopenable from Settings > Help
 - [x] Toggle: automatic sync on VS close (per PC, enabled by default)
+- [x] Opt-out: sync Claude Code while it is running (per PC, off by default,
+      with warning and confirmation; automatic sync still waits for close)
 - [ ] Conflicts section: "keep local / keep remote" choice
 - [ ] Sync log
 

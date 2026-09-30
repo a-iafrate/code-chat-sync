@@ -44,7 +44,14 @@ needs attention, such as a conflict or a pull that could not be completed.
 The window opened from the tray has three pages in a left navigation pane:
 **Sync** (status, *Sync now*, repository and folder summary, automatic sync,
 last run), **Projects** (registered projects, adding projects, and chats to
-restore on this PC), and **Settings** (sync repository and appearance).
+restore on this PC), and **Settings** (sync repository, appearance, advanced
+options, and help).
+
+On the first launch the window opens by itself with a short **setup guide**:
+it walks through choosing the sync repository, adding projects, and running
+the first sync. A **Get started** checklist on the *Sync* page tracks what is
+left, and each step can point you to the right control. *Settings > Help*
+reopens the guide or a quick tour of the window at any time.
 
 Under *Settings*, choose a **separate private sync folder** and
 optionally set its Git `origin` URL.
@@ -95,6 +102,15 @@ Only processes named `claude` are currently detected; Claude launched through
 a differently named host such as `node` may not be detected, so close all
 Claude processes before using Claude discovery or sync. Do not rely on this
 integration yet for complete cross-PC Claude chat restore.
+
+By default, a Claude Code discovery or sync is refused while Claude Code is
+running. *Settings > Advanced > Sync Claude Code while it is running* (per PC,
+off by default, confirmation required) skips that check for *Sync now*,
+per-project sync, and Claude project discovery: transcripts are then read and
+restored even while a session may be writing them, which can archive an
+incomplete chat or lose changes to a restored one. Local files are still backed
+up before being replaced. Automatic sync still waits for Claude Code to close.
+The CLI `sync` command honors the same setting.
 
 ## Why
 
