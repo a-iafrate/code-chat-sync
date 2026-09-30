@@ -42,7 +42,8 @@ window, *Start with Windows*, and *Exit*. It only interrupts you when a run
 needs attention, such as a conflict or a pull that could not be completed.
 
 The window opened from the tray has three pages in a left navigation pane:
-**Sync** (status, *Sync now*, repository and folder summary, automatic sync,
+**Sync** (status, *Sync now*, repository and folder summary with buttons to
+open the repository in the browser and the folder in File Explorer, automatic sync,
 last run), **Projects** (registered projects, adding projects, and chats to
 restore on this PC), and **Settings** (sync repository, appearance, advanced
 options, and help).

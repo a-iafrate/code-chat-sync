@@ -22,6 +22,7 @@ public sealed partial class MainWindow : Window
 	private string? _loadedFolder;
 	private string? _loadedOrigin;
 	private string? _configuredFolder;
+	private Uri? _repositoryWebUrl;
 	private bool _loadingSettings;
 	private bool _manualSyncRunning;
 	private DateTime? _lastOutcomeTime;
@@ -95,9 +96,14 @@ public sealed partial class MainWindow : Window
 			_configuredFolder = config.SyncRootPath;
 			SyncFolderTextBox.Text = config.SyncRootPath ?? string.Empty;
 			FolderSummaryText.Text = config.SyncRootPath ?? "Not configured";
+			OpenFolderButton.Visibility = config.SyncRootPath is { Length: > 0 } configuredFolder && Directory.Exists(configuredFolder)
+				? Visibility.Visible
+				: Visibility.Collapsed;
 			RemoteTextBox.Text = string.Empty;
 			_loadedOrigin = null;
 			RepositorySummaryText.Text = "No remote set";
+			_repositoryWebUrl = null;
+			OpenRepositoryButton.Visibility = Visibility.Collapsed;
 			ProjectsCountText.Text = config.Projects.Count > 0 ? config.Projects.Count.ToString() : string.Empty;
 			if (config.SyncRootPath is not { Length: > 0 } folder)
 			{
@@ -124,6 +130,8 @@ public sealed partial class MainWindow : Window
 					_loadedOrigin = origin;
 					remoteConnected = true;
 					RepositorySummaryText.Text = ShortenRemote(origin);
+					_repositoryWebUrl = GitRemoteWebUrl.TryCreate(origin);
+					OpenRepositoryButton.Visibility = _repositoryWebUrl is null ? Visibility.Collapsed : Visibility.Visible;
 				}
 			}
 			else
@@ -150,6 +158,27 @@ public sealed partial class MainWindow : Window
 			}
 
 			UpdateStatus();
+		}
+	}
+
+	private async void OnOpenRepositoryClick(object sender, RoutedEventArgs e)
+	{
+		if (_repositoryWebUrl is not null && !await Windows.System.Launcher.LaunchUriAsync(_repositoryWebUrl))
+		{
+			ShowAutomaticSyncMessage($"Could not open {_repositoryWebUrl} in the browser.", InfoBarSeverity.Warning);
+		}
+	}
+
+	private async void OnOpenFolderClick(object sender, RoutedEventArgs e)
+	{
+		if (_configuredFolder is not { Length: > 0 } folder)
+		{
+			return;
+		}
+
+		if (!Directory.Exists(folder) || !await Windows.System.Launcher.LaunchFolderPathAsync(folder))
+		{
+			ShowAutomaticSyncMessage($"Could not open the folder {folder}.", InfoBarSeverity.Warning);
 		}
 	}
 

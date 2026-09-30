@@ -269,15 +269,41 @@
 										</Grid.ColumnDefinitions>
 										<StackPanel>
 											<TextBlock Text="Repository" Style="{StaticResource CaptionStyle}" />
-											<TextBlock x:Name="RepositorySummaryText" Text="No remote set"
-													   FontFamily="Cascadia Mono, Consolas" FontSize="13"
-													   TextTrimming="CharacterEllipsis" />
+											<Grid HorizontalAlignment="Left" ColumnSpacing="4">
+												<Grid.ColumnDefinitions>
+													<ColumnDefinition Width="*" />
+													<ColumnDefinition Width="Auto" />
+												</Grid.ColumnDefinitions>
+												<TextBlock x:Name="RepositorySummaryText" Text="No remote set"
+														   FontFamily="Cascadia Mono, Consolas" FontSize="13"
+														   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+												<Button x:Name="OpenRepositoryButton" Grid.Column="1" Click="OnOpenRepositoryClick"
+														Visibility="Collapsed" Padding="4" MinWidth="0" MinHeight="0"
+														Background="Transparent" BorderThickness="0"
+														ToolTipService.ToolTip="Open the repository in the browser"
+														AutomationProperties.Name="Open the repository in the browser">
+													<FontIcon Glyph="&#xE8A7;" FontSize="12" />
+												</Button>
+											</Grid>
 										</StackPanel>
 										<StackPanel Grid.Column="1">
 											<TextBlock Text="Local folder" Style="{StaticResource CaptionStyle}" />
-											<TextBlock x:Name="FolderSummaryText" Text="Not configured"
-													   FontFamily="Cascadia Mono, Consolas" FontSize="13"
-													   TextTrimming="CharacterEllipsis" />
+											<Grid HorizontalAlignment="Left" ColumnSpacing="4">
+												<Grid.ColumnDefinitions>
+													<ColumnDefinition Width="*" />
+													<ColumnDefinition Width="Auto" />
+												</Grid.ColumnDefinitions>
+												<TextBlock x:Name="FolderSummaryText" Text="Not configured"
+														   FontFamily="Cascadia Mono, Consolas" FontSize="13"
+														   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+												<Button x:Name="OpenFolderButton" Grid.Column="1" Click="OnOpenFolderClick"
+														Visibility="Collapsed" Padding="4" MinWidth="0" MinHeight="0"
+														Background="Transparent" BorderThickness="0"
+														ToolTipService.ToolTip="Open the folder in File Explorer"
+														AutomationProperties.Name="Open the folder in File Explorer">
+													<FontIcon Glyph="&#xE838;" FontSize="12" />
+												</Button>
+											</Grid>
 										</StackPanel>
 									</Grid>
 								</StackPanel>

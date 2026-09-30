@@ -301,7 +301,10 @@ window follows the Windows 11 settings style (Mica backdrop, custom title bar,
 left `NavigationView`) and is split into three pages: **Sync** (status card with
 *Sync now*, repository/folder summary, automatic sync toggle, last run),
 **Projects** (registered projects, add form, restore selection), and
-**Settings** (sync repository, appearance). The automatic sync toggle and theme
+**Settings** (sync repository, appearance). The summary's open buttons use
+`GitRemoteWebUrl` (in `CodeChatSync.Git`) to turn the origin remote (https,
+scp-like or `ssh://`, Azure DevOps SSH) into a credential-free https page; the
+button stays hidden for local or unrecognized remotes. The automatic sync toggle and theme
 are saved as soon as they change; repository settings and restore selections
 keep explicit save buttons because they can fail or batch several edits.
 Registered projects have collapsed
