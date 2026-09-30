@@ -24,7 +24,7 @@ repo; no sync-tool file should ever end up in a client repo.
   process (e.g. `devenv.exe`) is running, to avoid reading/writing files
   that are in use or getting corrupted. The only exception is an explicit,
   per-PC opt-out (`skipRunningCheckProviderIds` in the local config,
-  currently exposed only for Claude Code under *Settings > Advanced*):
+  exposed for Visual Studio and Claude Code under *Settings > Advanced*):
   `ProcessGuard.ForSync` wraps the real guard so manual syncs and discovery
   ignore that provider's processes. The provider-close watcher keeps using
   the real guard, so automatic sync still waits for every tool to close;

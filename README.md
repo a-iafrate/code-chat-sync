@@ -103,14 +103,16 @@ a differently named host such as `node` may not be detected, so close all
 Claude processes before using Claude discovery or sync. Do not rely on this
 integration yet for complete cross-PC Claude chat restore.
 
-By default, a Claude Code discovery or sync is refused while Claude Code is
-running. *Settings > Advanced > Sync Claude Code while it is running* (per PC,
-off by default, confirmation required) skips that check for *Sync now*,
-per-project sync, and Claude project discovery: transcripts are then read and
-restored even while a session may be writing them, which can archive an
-incomplete chat or lose changes to a restored one. Local files are still backed
-up before being replaced. Automatic sync still waits for Claude Code to close.
-The CLI `sync` command honors the same setting.
+By default, a sync never touches a tool's chat files while that tool is
+running (Visual Studio chats are left alone; Claude Code discovery and sync are
+refused). *Settings > Advanced* offers two per-PC opt-outs, off by default and
+confirmed before enabling: *Sync Visual Studio while it is running* and *Sync
+Claude Code while it is running*. They apply to *Sync now*, per-project sync,
+and Claude project discovery: chats are then read and restored even while the
+tool may be writing them, which can archive an incomplete chat or lose changes
+to a restored one. Local files are still backed up before being replaced.
+Automatic sync still waits for the tools to close.
+The CLI `sync` command honors the same settings.
 
 ## Why
 

@@ -139,20 +139,28 @@ public sealed class SyncHost : IAsyncDisposable
             config.Save();
         }, _cancellation.Token);
 
-    /// <summary>Records whether Claude Code's running check is skipped on this PC.</summary>
-    public Task<bool> SaveSkipClaudeRunningCheckAsync(bool skip) =>
-        _coordinator.TryUpdateConfigurationAsync(() =>
+    /// <summary>Records whether a provider's running check is skipped on this PC.</summary>
+    public Task<bool> SaveSkipRunningCheckAsync(string providerId, bool skip)
+    {
+        if (!string.Equals(providerId, _visualStudioProvider.Id, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(providerId, _claudeProvider.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"Unknown provider '{providerId}'.", nameof(providerId));
+        }
+
+        return _coordinator.TryUpdateConfigurationAsync(() =>
         {
             var config = LocalConfig.Load();
             config.SkipRunningCheckProviderIds.RemoveAll(id =>
-                string.Equals(id, _claudeProvider.Id, StringComparison.OrdinalIgnoreCase));
+                string.Equals(id, providerId, StringComparison.OrdinalIgnoreCase));
             if (skip)
             {
-                config.SkipRunningCheckProviderIds.Add(_claudeProvider.Id);
+                config.SkipRunningCheckProviderIds.Add(providerId);
             }
 
             config.Save();
         }, _cancellation.Token);
+    }
 
     /// <summary>Process guard honoring this PC's current skip settings, for Claude project discovery.</summary>
     public IProcessGuard CreateDiscoveryProcessGuard() =>

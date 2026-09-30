@@ -87,6 +87,8 @@ public sealed partial class MainWindow : Window
 			};
 			ApplyTheme(config.ThemePreference);
 			AutomaticSyncToggle.IsOn = config.AutomaticSyncOnProviderClose;
+			SkipVisualStudioCheckToggle.IsOn = config.IsRunningCheckSkipped(VisualStudioProviderId);
+			SkipVisualStudioCheckInfoBar.IsOpen = SkipVisualStudioCheckToggle.IsOn;
 			SkipClaudeCheckToggle.IsOn = config.IsRunningCheckSkipped(ClaudeProviderId);
 			SkipClaudeCheckInfoBar.IsOpen = SkipClaudeCheckToggle.IsOn;
 			_loadedFolder = config.SyncRootPath;
@@ -303,63 +305,69 @@ public sealed partial class MainWindow : Window
 		_loadingSettings = false;
 	}
 
-	private async void OnSkipClaudeCheckToggled(object sender, RoutedEventArgs e)
+	private async void OnSkipRunningCheckToggled(object sender, RoutedEventArgs e)
 	{
-		if (_loadingSettings)
+		if (_loadingSettings || sender is not ToggleSwitch { Tag: string providerId } toggle)
 		{
 			return;
 		}
 
-		var skip = SkipClaudeCheckToggle.IsOn;
-		SkipClaudeCheckToggle.IsEnabled = false;
+		var isVisualStudio = providerId == VisualStudioProviderId;
+		var toolName = isVisualStudio ? "Visual Studio" : "Claude Code";
+		var infoBar = isVisualStudio ? SkipVisualStudioCheckInfoBar : SkipClaudeCheckInfoBar;
+		var skip = toggle.IsOn;
+		toggle.IsEnabled = false;
 		try
 		{
 			if (skip)
 			{
+				var risk = isVisualStudio
+					? "CodeChatSync will read and overwrite Copilot chats under .vs even while Visual Studio is open. "
+						+ "Visual Studio can hold those files, archive them half-written, or overwrite a restored chat when it saves or closes. "
+					: "CodeChatSync will read and overwrite Claude Code transcripts even while Claude Code is open. "
+						+ "A session writing at the same time can leave an incomplete chat in the archive, or lose the changes made to a restored chat. ";
 				var confirm = new ContentDialog
 				{
 					XamlRoot = Content.XamlRoot,
 					RequestedTheme = WindowRoot.ActualTheme,
-					Title = "Sync Claude Code while it is running?",
-					Content = "CodeChatSync will read and overwrite Claude Code transcripts even while Claude Code is open. "
-						+ "A session writing at the same time can leave an incomplete chat in the archive, or lose the changes made to a restored chat. "
-						+ "Local files are still backed up before being replaced.",
+					Title = $"Sync {toolName} while it is running?",
+					Content = risk + "Local files are still backed up before being replaced.",
 					PrimaryButtonText = "Turn off the check",
 					CloseButtonText = "Cancel",
 					DefaultButton = ContentDialogButton.Close
 				};
 				if (await confirm.ShowAsync() != ContentDialogResult.Primary)
 				{
-					RevertSkipClaudeCheckToggle(false);
+					RevertToggle(toggle, false);
 					return;
 				}
 			}
 
-			if (!await _syncHost.SaveSkipClaudeRunningCheckAsync(skip))
+			if (!await _syncHost.SaveSkipRunningCheckAsync(providerId, skip))
 			{
-				RevertSkipClaudeCheckToggle(!skip);
+				RevertToggle(toggle, !skip);
 				ShowSettingsMessage("A sync is in progress. Try again when it finishes.", InfoBarSeverity.Warning);
 				return;
 			}
 
-			SkipClaudeCheckInfoBar.IsOpen = skip;
+			infoBar.IsOpen = skip;
 		}
 		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
 			or ArgumentException or InvalidDataException or NotSupportedException)
 		{
-			RevertSkipClaudeCheckToggle(!skip);
-			ShowSettingsMessage($"Could not save the Claude Code setting: {exception.Message}", InfoBarSeverity.Error);
+			RevertToggle(toggle, !skip);
+			ShowSettingsMessage($"Could not save the {toolName} setting: {exception.Message}", InfoBarSeverity.Error);
 		}
 		finally
 		{
-			SkipClaudeCheckToggle.IsEnabled = true;
+			toggle.IsEnabled = true;
 		}
 	}
 
-	private void RevertSkipClaudeCheckToggle(bool value)
+	private void RevertToggle(ToggleSwitch toggle, bool value)
 	{
 		_loadingSettings = true;
-		SkipClaudeCheckToggle.IsOn = value;
+		toggle.IsOn = value;
 		_loadingSettings = false;
 	}
 
