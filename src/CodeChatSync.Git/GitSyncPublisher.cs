@@ -83,14 +83,46 @@ public sealed class GitSyncPublisher(SyncRepository repository) : ISyncPublisher
             return SyncPublishResult.Stop($"The sync repository could not be pulled: {exception.Message}");
         }
 
-        return pull.Status switch
+        if (pull.Status is PullStatus.Failed)
         {
-            PullStatus.UpToDate => SyncPublishResult.Ok("Pulled the latest chats from the sync remote."),
-            PullStatus.NoRemote => SyncPublishResult.Ok("The sync repository has no remote yet; working locally."),
-            PullStatus.NoUpstream => SyncPublishResult.Ok("First push from this PC: nothing to pull yet."),
-            _ => SyncPublishResult.Stop(
-                $"Could not pull the sync repository, so nothing was changed locally:{Environment.NewLine}{pull.Message}")
+            return SyncPublishResult.Stop(
+                $"Could not pull the sync repository, so nothing was changed locally:{Environment.NewLine}{pull.Message}");
+        }
+
+        var message = pull.Status switch
+        {
+            PullStatus.NoRemote => "The sync repository has no remote yet; working locally.",
+            PullStatus.NoUpstream => "First push from this PC: nothing to pull yet.",
+            _ => "Pulled the latest chats from the sync remote."
         };
+
+        // After the pull, so the attributes file cannot block a fast-forward checkout on a
+        // branch this PC has not pushed yet.
+        if (EnsureVerbatimContent() is { Length: > 0 } warning)
+        {
+            message += Environment.NewLine + warning;
+        }
+
+        return SyncPublishResult.Ok(message);
+    }
+
+    /// <summary>
+    /// Keeps Git from rewriting chat files, returning a warning when the settings could
+    /// not be applied. A failure here does not stop the run: it only means line-ending
+    /// conflicts stay possible until the next attempt succeeds.
+    /// </summary>
+    private string? EnsureVerbatimContent()
+    {
+        try
+        {
+            _repository.EnsureVerbatimContent();
+            return null;
+        }
+        catch (Exception exception) when (exception is GitCommandException or IOException or UnauthorizedAccessException)
+        {
+            return "Could not tell Git to store chats unchanged, so files may still be reported as conflicting "
+                + $"after a line-ending change: {exception.Message}";
+        }
     }
 
     public SyncPublishResult PublishChanges(int pushedCount)

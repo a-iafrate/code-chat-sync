@@ -60,7 +60,67 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
             results.Add(SyncSingle(provider, project, projectSyncRoot, syncRootPath, state, relativePath, running, dryRun, restoreAllowed));
         }
 
-        return new SyncReport { Entries = results };
+        return new SyncReport
+        {
+            Entries = results,
+            Registration = RegisterSessions(provider, project, relativePaths, shouldRestore, running, dryRun)
+        };
+    }
+
+    /// <summary>
+    /// Announces the project's restorable sessions to a tool that keeps its own index
+    /// of chats, so a chat whose files were copied earlier also becomes visible.
+    /// </summary>
+    /// <remarks>
+    /// This runs on every sync, not only when something was copied: a session restored
+    /// before the tool learned to register it would otherwise stay invisible forever,
+    /// since its files already match and no copy is needed. The provider is expected to
+    /// skip sessions it has already registered.
+    /// </remarks>
+    private static SessionRegistrationResult? RegisterSessions(
+        IChatProvider provider,
+        ProjectInfo project,
+        IReadOnlyCollection<string> relativePaths,
+        Func<string, bool>? shouldRestore,
+        IReadOnlyList<string> runningProcesses,
+        bool dryRun)
+    {
+        if (provider is not IChatSessionRegistrar registrar)
+        {
+            return null;
+        }
+
+        // The index belongs to the tool: writing it while the tool is open is the same
+        // hazard as writing its chat files.
+        if (runningProcesses.Count > 0)
+        {
+            return new SessionRegistrationResult
+            {
+                RegisteredCount = 0,
+                Reason = $"Waiting for {string.Join(", ", runningProcesses)} to close before updating its chat list.",
+                IsBlockedByProvider = true
+            };
+        }
+
+        var sessionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var relativePath in relativePaths)
+        {
+            if (!(shouldRestore?.Invoke(relativePath) ?? true))
+            {
+                continue;
+            }
+
+            try
+            {
+                sessionIds.Add(registrar.GetSessionId(relativePath));
+            }
+            catch (ArgumentException)
+            {
+                // A file that does not sit under a session folder: nothing to register.
+            }
+        }
+
+        return sessionIds.Count == 0 ? null : registrar.RegisterSessions(project, sessionIds, dryRun);
     }
 
     private static (HashSet<string> Paths, HashSet<string> InUsePaths) CollectRelativePaths(
@@ -185,11 +245,45 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
             : Pull(provider, project, relativePath, localPath, syncPath, syncHash, syncRootPath, state, runningProcesses, dryRun, mapper);
     }
 
+    /// <summary>
+    /// Whether this PC's copy still carries another PC's data and has to be rewritten.
+    /// </summary>
+    /// <remarks>
+    /// A file that differs only in letter case is left alone. The difference is then just
+    /// how this PC's own path is spelled — Visual Studio was observed recording the same
+    /// folder as both <c>c:\</c> and <c>C:\</c> — and the tool that wrote it may compare
+    /// that path as an exact string, so rewriting it could hide a chat that is currently
+    /// visible while fixing nothing.
+    /// </remarks>
     private static bool NeedsLocalRewrite(IChatContentMapper mapper, ProjectInfo project, string localPath, string syncPath)
     {
         var expected = mapper.ToLocal(project, File.ReadAllBytes(syncPath));
-        return !File.ReadAllBytes(localPath).AsSpan().SequenceEqual(expected);
+        return !EqualsIgnoringAsciiCase(File.ReadAllBytes(localPath), expected);
     }
+
+    /// <summary>
+    /// Byte comparison that ignores ASCII letter case, which is all a path can differ by.
+    /// </summary>
+    private static bool EqualsIgnoringAsciiCase(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
+    {
+        if (left.Length != right.Length)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Length; index++)
+        {
+            if (ToLowerAscii(left[index]) != ToLowerAscii(right[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static byte ToLowerAscii(byte value) =>
+        value is >= (byte)'A' and <= (byte)'Z' ? (byte)(value + ('a' - 'A')) : value;
 
     private static SyncEntryResult Push(
         string relativePath,

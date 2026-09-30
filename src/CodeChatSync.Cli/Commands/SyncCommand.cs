@@ -176,6 +176,19 @@ internal static class SyncCommand
             }
         }
 
+        if (report.Registration is { } registration)
+        {
+            if (registration.RegisteredCount > 0)
+            {
+                Console.WriteLine($"  Listed {registration.RegisteredCount} restored chat(s) in the tool's own chat list.");
+            }
+
+            if (registration.Reason is { Length: > 0 } reason)
+            {
+                Console.WriteLine($"  {reason}");
+            }
+        }
+
         Console.WriteLine(
             $"  {report.PushedCount} pushed, {report.PulledCount} pulled, {report.UnchangedCount} unchanged, " +
             $"{report.SkippedCount} skipped, {report.ConflictCount} conflicts.");

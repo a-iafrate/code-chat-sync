@@ -8,11 +8,18 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The Copilot backend Visual Studio hosts lists a solution's chats by comparing the
-/// descriptor's <c>cwd</c> with the solution folder as an exact string (case and
-/// trailing separator included). A descriptor still carrying the source PC's path is
-/// therefore restored but never shown. <c>session-store.db</c> is not involved: the
-/// backend lists sessions from their folders.
+/// The Copilot backend Visual Studio hosts matches a solution's chats on the
+/// descriptor's <c>cwd</c>, so one still carrying the source PC's path is restored but
+/// never shown. Whether that match is case-sensitive is unconfirmed: Visual Studio was
+/// observed writing the same folder as both <c>c:\</c> and <c>C:\</c> for sessions it
+/// created itself, so the tool deliberately does not normalize the spelling of a path
+/// that is already correct.
+/// </para>
+/// <para>
+/// Mapping the path is necessary but not sufficient. A restored session also needs a row
+/// in the machine-wide <c>session-store.db</c> before it is listed at all — see
+/// <see cref="CopilotSessionStore"/>, which adds it locally without ever copying that
+/// file between PCs.
 /// </para>
 /// <para>
 /// In the sync folder, paths under the project root are stored with

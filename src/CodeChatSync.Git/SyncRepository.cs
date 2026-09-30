@@ -162,6 +162,36 @@ public sealed class SyncRepository(string repositoryPath, GitCommandRunner? runn
         }
 
         WriteGitIgnore();
+        EnsureVerbatimContent();
+    }
+
+    /// <summary>
+    /// Makes Git store and check out chat files exactly as they are, with no line-ending
+    /// translation.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Chats are copied wholesale and compared by content hash, so a byte Git changes on
+    /// its own is indistinguishable from an edit made on another PC. With the common
+    /// <c>core.autocrlf=true</c> setting, checking out a chat file rewrites its line
+    /// endings; the sync then sees the sync folder and this PC's copy as both changed
+    /// since the last run and reports a conflict on a file nobody touched.
+    /// </para>
+    /// <para>
+    /// Applied to existing repositories too, not only at <see cref="Initialize"/> time,
+    /// since the setting is usually inherited from the user's global configuration long
+    /// after the sync folder was created. The next commit then records the files as they
+    /// really are on disk, once, and they stay stable afterwards.
+    /// </para>
+    /// </remarks>
+    public void EnsureVerbatimContent()
+    {
+        WriteGitAttributes();
+
+        // Belt and braces: .gitattributes already wins for tracked paths, but an explicit
+        // repository-level setting also covers the attributes file itself and makes the
+        // intent visible to anyone inspecting the sync folder.
+        _runner.Run(_repositoryPath, ["config", "core.autocrlf", "false"]);
     }
 
     /// <summary>
@@ -256,33 +286,48 @@ public sealed class SyncRepository(string repositoryPath, GitCommandRunner? runn
 
     /// <summary>
     /// Fast-forwards <paramref name="branchName"/> from the remote. On a branch with no
-    /// commit yet, the untracked <c>.gitignore</c> written by <see cref="Initialize"/> would
-    /// block the checkout, so it is set aside and its backup entry merged back afterwards.
+    /// commit yet, the untracked <c>.gitignore</c> and <c>.gitattributes</c> written by
+    /// <see cref="Initialize"/> would block the checkout, so they are set aside and their
+    /// entries merged back afterwards.
     /// </summary>
     private GitResult PullIntoBranch(string branchName)
     {
         string[] arguments = ["pull", "--ff-only", DefaultRemoteName, branchName];
-        var gitIgnorePath = Path.Combine(_repositoryPath, ".gitignore");
         var hasCommit = _runner.Run(_repositoryPath, ["rev-parse", "--verify", "--quiet", "HEAD"]).Succeeded;
-        if (hasCommit || !File.Exists(gitIgnorePath))
+
+        var setAside = hasCommit
+            ? []
+            : new[] { ".gitignore", ".gitattributes" }
+                .Select(name => Path.Combine(_repositoryPath, name))
+                .Where(File.Exists)
+                .ToDictionary(path => path, File.ReadAllBytes);
+
+        if (setAside.Count == 0)
         {
             return _runner.Run(_repositoryPath, arguments);
         }
 
-        var original = File.ReadAllBytes(gitIgnorePath);
-        File.Delete(gitIgnorePath);
+        foreach (var path in setAside.Keys)
+        {
+            File.Delete(path);
+        }
+
         var pull = _runner.Run(_repositoryPath, arguments);
         if (!pull.Succeeded)
         {
-            if (!File.Exists(gitIgnorePath))
+            foreach (var (path, original) in setAside)
             {
-                File.WriteAllBytes(gitIgnorePath, original);
+                if (!File.Exists(path))
+                {
+                    File.WriteAllBytes(path, original);
+                }
             }
 
             return pull;
         }
 
         WriteGitIgnore();
+        WriteGitAttributes();
         return pull;
     }
 
@@ -375,6 +420,40 @@ public sealed class SyncRepository(string repositoryPath, GitCommandRunner? runn
         addition.Add("# Local backups taken before overwriting chat files");
         addition.Add(backupsEntry);
         File.WriteAllLines(gitIgnorePath, addition);
+    }
+
+    /// <summary>
+    /// Marks every path as binary for Git's purposes, so chat files survive a commit and
+    /// checkout byte for byte. See <see cref="EnsureVerbatimContent"/> for why.
+    /// </summary>
+    private void WriteGitAttributes()
+    {
+        var gitAttributesPath = Path.Combine(_repositoryPath, ".gitattributes");
+        const string verbatimEntry = "* -text";
+
+        if (!File.Exists(gitAttributesPath))
+        {
+            File.WriteAllText(
+                gitAttributesPath,
+                $"# Chats are compared byte for byte: Git must not translate line endings{Environment.NewLine}{verbatimEntry}{Environment.NewLine}");
+            return;
+        }
+
+        var lines = File.ReadAllLines(gitAttributesPath);
+        if (lines.Any(line => line.Trim() == verbatimEntry))
+        {
+            return;
+        }
+
+        var addition = new List<string>(lines);
+        if (addition.Count > 0 && addition[^1].Trim().Length > 0)
+        {
+            addition.Add(string.Empty);
+        }
+
+        addition.Add("# Chats are compared byte for byte: Git must not translate line endings");
+        addition.Add(verbatimEntry);
+        File.WriteAllLines(gitAttributesPath, addition);
     }
 
     private void EnsureDirectoryExists()

@@ -38,10 +38,33 @@ public sealed record SyncEntryResult
     public bool IsBlockedByProvider { get; init; }
 }
 
+/// <summary>
+/// Outcome of announcing restored chats to a tool that keeps its own index of them.
+/// </summary>
+public sealed record SessionRegistrationResult
+{
+    /// <summary>Sessions added to the tool's index, or that would be in a dry run.</summary>
+    public required int RegisteredCount { get; init; }
+
+    /// <summary>Why nothing could be registered, when the step did not run.</summary>
+    public string? Reason { get; init; }
+
+    /// <summary>
+    /// True when only the tool being open held the registration back. Closing it and
+    /// syncing again completes it.
+    /// </summary>
+    public bool IsBlockedByProvider { get; init; }
+}
+
 /// <summary>Outcome of a whole sync run.</summary>
 public sealed record SyncReport
 {
     public required IReadOnlyList<SyncEntryResult> Entries { get; init; }
+
+    /// <summary>
+    /// Set only for providers whose tool keeps an index of chats beside the files.
+    /// </summary>
+    public SessionRegistrationResult? Registration { get; init; }
 
     public int PushedCount => Entries.Count(entry => entry.Action is SyncAction.Pushed);
 
@@ -58,5 +81,8 @@ public sealed record SyncReport
     /// <summary>Files that still need the provider's tool to be closed.</summary>
     public int BlockedByProviderCount => Entries.Count(entry => entry.IsBlockedByProvider);
 
-    public bool HasBlockedPulls => BlockedByProviderCount > 0;
+    public bool HasBlockedPulls => BlockedByProviderCount > 0 || (Registration?.IsBlockedByProvider ?? false);
+
+    /// <summary>Restored chats this run made visible to the provider's tool.</summary>
+    public int RegisteredSessionCount => Registration?.RegisteredCount ?? 0;
 }

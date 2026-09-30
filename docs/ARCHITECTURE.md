@@ -6,6 +6,12 @@ Sync AI chats (Copilot, other tools later) across the user's PCs, keeping
 them **out of client repos**. No client data should ever end up in the sync
 repo; no sync-tool file should ever end up in a client repo.
 
+Two exceptions to the second half are approved, both narrow, both spelled out
+below: restoring Visual Studio's chat list entry into
+`.vs/<solution>/copilot-chat/`, without which a restored chat is invisible, and
+deploying a prompt file into `.github/prompts/`, without which Visual Studio
+cannot read it.
+
 ## Design principles
 
 - **No symlinks.** The tool copies files, period. Push from local to the
@@ -22,7 +28,9 @@ repo; no sync-tool file should ever end up in a client repo.
   `watch` trigger).
 - **Sync only while the tool is closed.** Never write while the provider's
   process (e.g. `devenv.exe`) is running, to avoid reading/writing files
-  that are in use or getting corrupted. The only exception is an explicit,
+  that are in use or getting corrupted. This covers a tool's own index as much
+  as its chat files: a second writer on a live SQLite database is not something
+  a backup recovers from. The only exception is an explicit,
   per-PC opt-out (`skipRunningCheckProviderIds` in the local config,
   exposed for Visual Studio and Claude Code under *Settings > Advanced*):
   `ProcessGuard.ForSync` wraps the real guard so every sync run (manual or
@@ -49,10 +57,14 @@ repo; no sync-tool file should ever end up in a client repo.
 - **WinUI 3 on the latest stable Windows App SDK release** at the time of
   implementation (don't pin to an old version "because it works"): check
   the current version before adding the package.
-- Every NuGet dependency (`System.CommandLine`, `H.NotifyIcon.WinUI`, the
-  chosen Git package, etc.) must be taken at the **latest stable version
+- Every NuGet dependency (`System.CommandLine`, `H.NotifyIcon.WinUI`,
+  `Microsoft.Data.Sqlite`, etc.) must be taken at the **latest stable version
   available** at the time it's added, not copied from examples or
   tutorials that might reference older versions.
+- `Microsoft.Data.Sqlite` lives only in
+  `CodeChatSync.Providers.VisualStudio`, which needs it to add restored
+  sessions to Visual Studio's own chat index. The Core stays free of it, so a
+  provider for a tool that stores nothing in SQLite pays nothing for it.
 - **All documentation, code, identifiers (classes, methods, variables), and
   comments must be in English**, regardless of the language used when
   talking to an AI assistant about the project.
@@ -92,7 +104,17 @@ public interface IChatProvider
 `IChatSessionProvider` optionally exposes a stable per-session ID for local
 restore choices. `IChatRestoreValidator` optionally refuses an archived file
 before any local overwrite; Claude uses it to reject transcripts whose `cwd`
-does not match this PC's registered project path.
+does not match this PC's registered project path. `IChatSessionRegistrar`
+covers tools that keep their own index of chats and only list one that appears
+in it: the Core says which sessions this PC may see, the provider decides what
+announcing them means, and the step runs under the same "tool must be closed"
+rule as any other local write.
+
+A local chat file is **not** rewritten when it differs from the restored form
+only in letter case. Visual Studio was observed recording the same folder as
+both `c:\` and `C:\`, and it may compare that path as an exact string, so
+normalizing the spelling risks hiding a chat that is currently visible while
+fixing nothing.
 
 `ProjectInfo` holds the project's identity (normalized Git remote) plus its
 current local path. The Core handles copying, date comparison, backup, and
@@ -106,13 +128,71 @@ commit/push/pull. The provider only has to say where to look.
   .gitignore                             # excludes .backups/
   .backups/                              # local safety copies, never committed
   <provider>/<project-from-remote>/...   # e.g. visualstudio/clientA-erp/
+    <session-id>/...                     # the chat's own files
+    <session-id>/.chat-window/<solution>  # Visual Studio's list entry for that chat,
+                                          # e.g. .chat-window/src/CodeChatSync.slnx.
+                                          # The per-PC workspace folder is left out:
+                                          # each PC resolves its own on restore.
 ```
 
 ## Visual Studio chat storage (verified, undocumented)
 
-Copilot chats are **not** stored in the solution's `.vs` folder — that only
-holds `CopilotIndices/<version>/SemanticSymbols.db*`, a semantic symbol index.
-They live per user, per session under:
+There are **two** layers, and both are needed for a chat to be usable:
+
+1. The **agent's transcript**, per user and per session under
+   `%LOCALAPPDATA%` (below). This is the conversation itself.
+2. The **chat window's own record**, per solution, inside that solution's
+   `.vs` folder:
+   `​.vs/<solution>/copilot-chat/<hash>/sessions/<session-id>`.
+
+**The list Visual Studio shows comes from layer 2, not from layer 1.** This was
+established by elimination: twelve restored sessions were given complete
+`sessions` rows and reconstructed `turns` rows in the machine-wide
+`session-store.db`, matching byte for byte what Visual Studio writes for a chat
+it does list, and none of them appeared. The single listed chat was the only one
+with a file under `copilot-chat/`, and that file's `LastMessagePreview` field
+holds the exact subtitle rendered in the panel.
+
+The record is MessagePack carrying Visual Studio's own conversation types
+(`Microsoft.VisualStudio.Conversations.Chat.HelpWindow`, `Responders`,
+`SelectedAgent`, `IsRead`, `TimeUpdated`, `LastMessagePreview`). It is
+**self-contained**: 36 KB held an entire conversation, and only one absolute path
+appeared anywhere in it — inside the chat's own text, not in its structure. So a
+chat that never used the CLI agent, and therefore has no transcript at all, still
+restores from this file alone.
+
+These records are therefore **copied, not synthesized**, like every other chat
+file: rebuilding one would mean reproducing Visual Studio's internal types and
+nested binary blobs. Copying was verified directly — a record placed in the
+right folder under a different session ID appeared in the list as a second chat.
+
+`<hash>` is **not** derived from the solution: the same value was found on
+fourteen unrelated solutions of one PC, so it identifies the machine or the
+signed-in account. No hash of the solution path, its name, the account or the
+chat window identifier reproduced it, and it appears nowhere in Visual Studio's
+own state as text. It is therefore **read from disk, never computed**
+(`CopilotChatWindowStore.FindWorkspaceId`), and the synced path leaves it out
+entirely. A project where Visual Studio has never opened a chat on this PC has
+no such folder, so restoring a record there is refused with an explanation
+rather than guessed at: opening a chat once creates it.
+
+**This is the one place besides the Prompt Library where the tool writes inside a
+client repository**, and it is a deliberate exception to that rule, approved by
+the owner, because there is no other way to make a restored chat visible. It is
+narrow: only `.vs`, which Visual Studio generates and Git ignores, and only the
+`copilot-chat/<hash>/sessions/` folder. The usual rules still apply — nothing is
+written while Visual Studio is running, and an existing record is backed up
+before it is replaced.
+
+A session that is currently open is skipped in both directions: Visual Studio
+rewrites its record as the conversation goes on, so copying it would risk a torn
+file exactly as copying a live transcript would.
+
+An earlier note in this document claimed chats were not in `.vs` at all because
+that folder only held `CopilotIndices/<version>/SemanticSymbols.db*`. That was
+right about the transcript and wrong about the list.
+
+The transcript lives per user, per session under:
 
 ```
 %LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\
@@ -134,13 +214,50 @@ What gets synced, and why:
   present in fewer than half of the sessions, is schema-only (empty) in almost
   all of those, and the session with the largest transcript had no such file at
   all. It carries no chat content.
-- **`session-store.db` — never synced.** It is machine-wide and indexes the
-  sessions of *every* repository on the PC, so copying it into the sync repo
-  would put unrelated clients' data there, violating the separation rule. A
-  session folder is self-contained without it: many recent, content-rich
-  sessions exist on disk with no row in this database. If a restored session
-  ever needs to be registered there, the tool must insert only that session's
-  rows into the local database, never copy the file.
+- **`session-store.db` — never synced, but written to locally.** It is
+  machine-wide and indexes the sessions of *every* repository on the PC, so
+  copying it into the sync repo would put unrelated clients' data there,
+  violating the separation rule.
+
+  A session folder is **not** self-contained without it: the agent uses it to
+  know its own sessions. It does **not** drive the chat list — see the two
+  layers above. Two tables are written:
+
+  - `sessions(id, cwd, repository, host_type, branch, summary, created_at,
+    updated_at)` identifies the chat. `summary` holds what `workspace.yaml`
+    calls `name`; timestamps are ISO 8601 with milliseconds and a `Z` suffix.
+  - `turns(session_id, turn_index, user_message, assistant_response, timestamp)`
+    is what the list actually **renders**: the entry's title is the user's
+    message, its subtitle the assistant's reply.
+
+  Every sync writes both, built entirely from the session's own files —
+  `workspace.yaml` for the row, `events.jsonl` for the turns
+  (`CopilotTranscriptTurns`) — and never copies or moves the database. This
+  keeps a restored session consistent with what the agent expects of its own
+  store, which is worth having on its own; it is **not** sufficient to make the
+  chat appear in Visual Studio's list.
+
+  The reconstruction rule is one turn per `user.message` event, in order, paired
+  with the last non-empty `assistant.message` before the next question. It was
+  checked against a 3.2 MB transcript whose thirteen turns Visual Studio had
+  recorded itself: all thirteen user messages and eleven of the thirteen replies
+  came back identical. In the other two Visual Studio stored no reply where the
+  transcript holds a partial one, which only changes the preview text. The
+  `timestamp` it stores matches no event — it is when the row was written — so
+  the turn's own time is used, which is what the list needs in order to sort.
+
+  The schema is undocumented (version 6 when this was written), so the columns
+  present are read at runtime and only those are written: a Visual Studio update
+  that adds or drops one degrades to a skipped registration with an explanation
+  instead of a failed sync. A session Visual Studio has already recorded a turn
+  for is left completely alone, which makes the step safe to repeat on every run
+  — and it has to run on every run, because a session restored before this
+  existed needs no file copy and would otherwise stay hidden forever.
+
+  `checkpoints`, `session_files`, `session_refs` and the `search_index` FTS
+  tables are deliberately left alone. Only `search_index` has a visible cost: a
+  restored chat is listed and can be opened, but will not be found by searching
+  its text until that is addressed.
 - **`*.lock`, `*-shm`, `*-wal` — excluded.** Per-PC or live-session runtime
   state.
 
@@ -162,7 +279,14 @@ The format is undocumented: all of this is best-effort and confined to
   content hash of each file at the last successful sync. These are what tell a
   one-sided change from a real conflict, so they are machine-specific and must
   never end up in the sync repo.
-- `CODECHATSYNC_HOME` overrides both local locations, which keeps tests and
+- Per-PC safety copies of provider-owned local data the tool modifies:
+  `%LOCALAPPDATA%\CodeChatSync\backups\<provider>\<timestamp>\`, currently
+  Visual Studio's `session-store.db` and its `-wal`/`-shm` companions. These sit
+  outside the sync folder on purpose, unlike the backups taken before a chat
+  file is overwritten: that index covers every repository on the PC, so a copy
+  of it inside the sync repository would put unrelated clients' data there even
+  though Git ignores the folder.
+- `CODECHATSYNC_HOME` overrides all three local locations, which keeps tests and
   portable installs away from the real user configuration.
 - Optional per-PC `restoreSelections` entries are keyed by provider and
   normalized project remote. A missing entry restores all sessions (including
@@ -216,6 +340,17 @@ A `sync` run is pull → copy → commit → push:
   with an explanation, so chats still reach the sync folder. **Missing or
   unusable Git on a folder that is a repository stops the run**, because it
   could not be pulled first. `--no-git` forces file-only mode.
+- **Git must never rewrite a chat.** Chats are copied wholesale and compared by
+  content hash, so a byte Git changes on its own is indistinguishable from an
+  edit made on another PC. With the common `core.autocrlf=true`, checking out a
+  chat file translates its line endings: the sync then sees both sides as
+  changed since the last run and reports a conflict on a file nobody touched.
+  Every run therefore writes a `.gitattributes` containing `* -text` and sets
+  `core.autocrlf=false` on the sync repository — not only at `--init` time,
+  since the setting is usually inherited from the user's global configuration
+  long after the sync folder was created. It is applied after the pull, so the
+  new file cannot block a fast-forward checkout; the next commit records the
+  files as they really are on disk, once, and they stay stable afterwards.
 - **`config set-sync-root --init`** creates the repository and writes a
   `.gitignore` containing `.backups/`, keeping the local backups taken before
   each overwrite out of the sync repo.

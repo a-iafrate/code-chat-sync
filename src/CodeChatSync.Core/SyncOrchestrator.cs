@@ -71,6 +71,9 @@ public sealed record SyncRunResult
 
     public int ConflictCount => Projects.Sum(project => project.Report.ConflictCount);
 
+    /// <summary>Restored chats this run made visible in their tool's own chat list.</summary>
+    public int RegisteredSessionCount => Projects.Sum(project => project.Report.RegisteredSessionCount);
+
     public bool HasConflicts => ConflictCount > 0;
 
     public bool HasBlockedPulls => Projects.Any(project => project.Report.HasBlockedPulls);

@@ -11,7 +11,7 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// The layout is undocumented, so everything here is best-effort and stays inside
 /// this project.
 /// </remarks>
-public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : IChatSessionProvider, IChatContentMapper
+public sealed class VisualStudioChatProvider : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator
 {
     /// <summary>
     /// Runtime state that is specific to one PC or to a live session, and therefore
@@ -32,8 +32,9 @@ public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : 
     /// The machine-wide <c>session-store.db</c> one level above the session folders
     /// is never a candidate for syncing: it indexes the sessions of <em>every</em>
     /// repository on the PC, so copying it into a sync repository would mix
-    /// unrelated projects' data. A restored session does not need a row there: the
-    /// Copilot backend lists sessions from their folders.
+    /// unrelated projects' data. A restored session does, however, need a row in the
+    /// local copy of it before Visual Studio lists the chat, which
+    /// <see cref="CopilotSessionStore"/> inserts without ever moving the file.
     /// </para>
     /// </remarks>
     private static readonly string[] ExcludedExtensions =
@@ -44,8 +45,21 @@ public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : 
         ".db-wal"
     ];
 
-    private readonly string _sessionStateRoot = sessionStateRoot
-        ?? CopilotChatDiscovery.GetDefaultSessionStateRoot();
+    private readonly string _sessionStateRoot;
+    private readonly CopilotSessionStore _sessionStore;
+
+    /// <summary>
+    /// This PC's chat workspace folder per project, looked up once per run: it never
+    /// changes while a sync is in flight, and the lookup walks the project tree.
+    /// </summary>
+    private readonly Dictionary<string, string?> _workspaceIds = new(StringComparer.OrdinalIgnoreCase);
+
+    public VisualStudioChatProvider(string? sessionStateRoot = null, string? sessionStorePath = null)
+    {
+        _sessionStateRoot = sessionStateRoot ?? CopilotChatDiscovery.GetDefaultSessionStateRoot();
+        _sessionStore = new CopilotSessionStore(
+            sessionStorePath ?? CopilotSessionStore.GetDefaultPath(_sessionStateRoot));
+    }
 
     public string Id => "visualstudio";
 
@@ -58,11 +72,17 @@ public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : 
     {
         ArgumentNullException.ThrowIfNull(project);
 
+        var openSessionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var session in CopilotChatDiscovery.DiscoverSessions(_sessionStateRoot))
         {
             if (!BelongsToProject(session, project))
             {
                 continue;
+            }
+
+            if (session.IsInUse)
+            {
+                openSessionIds.Add(session.Id);
             }
 
             foreach (var file in session.Files)
@@ -83,11 +103,45 @@ public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : 
                 };
             }
         }
+
+        // The Chat window's own record of each conversation, which is what makes a chat
+        // appear in the list at all. Discovered independently of the transcripts: a chat
+        // that never used the CLI agent has one of these and no session folder.
+        foreach (var entry in CopilotChatWindowStore.Discover(project.LocalPath))
+        {
+            var info = new FileInfo(entry.LocalPath);
+            if (!info.Exists)
+            {
+                continue;
+            }
+
+            yield return new ChatLocation
+            {
+                RelativePath = CopilotChatWindowStore.BuildRelativePath(entry.SessionId, entry.SolutionRelativePath),
+                LocalPath = entry.LocalPath,
+                Length = info.Length,
+                LastWriteTimeUtc = info.LastWriteTimeUtc,
+
+                // Visual Studio rewrites this record as the conversation goes on, so an
+                // open chat's entry is as unsafe to copy as its transcript.
+                IsInUse = openSessionIds.Contains(entry.SessionId)
+            };
+        }
     }
 
     public string MapToLocal(ProjectInfo project, string relativePath)
     {
         ArgumentNullException.ThrowIfNull(project);
+
+        if (CopilotChatWindowStore.TryParseRelativePath(relativePath, out var solutionRelativePath))
+        {
+            return CopilotChatWindowStore.MapToLocal(
+                project.LocalPath,
+                solutionRelativePath,
+                GetSessionId(relativePath),
+                GetWorkspaceId(project));
+        }
+
         return RelativePathGuard.ResolveUnder(_sessionStateRoot, relativePath);
     }
 
@@ -101,6 +155,74 @@ public sealed class VisualStudioChatProvider(string? sessionStateRoot = null) : 
         }
 
         return normalized[..separator];
+    }
+
+    /// <summary>
+    /// Adds the restorable sessions that are present on this PC to Visual Studio's own
+    /// chat index, which is what decides whether a chat is listed at all.
+    /// </summary>
+    /// <remarks>
+    /// Only sessions belonging to <paramref name="project"/> and already on disk are
+    /// considered, so this never announces a chat whose files are missing or one from a
+    /// project that is not being synced.
+    /// </remarks>
+    public SessionRegistrationResult RegisterSessions(
+        ProjectInfo project,
+        IReadOnlyCollection<string> sessionIds,
+        bool dryRun)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(sessionIds);
+
+        var selected = new HashSet<string>(sessionIds, StringComparer.OrdinalIgnoreCase);
+        var sessions = CopilotChatDiscovery.DiscoverSessions(_sessionStateRoot)
+            .Where(session => selected.Contains(session.Id) && BelongsToProject(session, project))
+            .ToArray();
+
+        var registration = _sessionStore.Register(sessions, dryRun);
+        return new SessionRegistrationResult
+        {
+            RegisteredCount = registration.RegisteredCount,
+            Reason = registration.Reason
+        };
+    }
+
+    /// <summary>
+    /// Refuses to restore a Chat window record while this PC has nowhere to put it.
+    /// </summary>
+    /// <remarks>
+    /// The folder Visual Studio reads is named after a value it generates itself, which
+    /// cannot be derived, so it only exists once a chat has been opened in this project
+    /// here. Guessing a name would write a file Visual Studio never looks at.
+    /// </remarks>
+    public string? GetRestoreRefusal(ProjectInfo project, string archivedPath)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(archivedPath);
+
+        var isChatWindowRecord = archivedPath
+            .Replace('\\', '/')
+            .Contains($"/{CopilotChatWindowStore.PathSegment}/", StringComparison.Ordinal);
+
+        if (!isChatWindowRecord || GetWorkspaceId(project) is not null)
+        {
+            return null;
+        }
+
+        return "Visual Studio has not opened a Copilot chat in this project on this PC yet, "
+            + "so there is nowhere to put the entry that lists it. Start a chat here once, then sync again.";
+    }
+
+    private string? GetWorkspaceId(ProjectInfo project)
+    {
+        var key = Path.GetFullPath(project.LocalPath);
+        if (!_workspaceIds.TryGetValue(key, out var workspaceId))
+        {
+            workspaceId = CopilotChatWindowStore.FindWorkspaceId(key);
+            _workspaceIds[key] = workspaceId;
+        }
+
+        return workspaceId;
     }
 
     /// <summary>Only a session's <c>workspace.yaml</c> embeds this PC's paths.</summary>

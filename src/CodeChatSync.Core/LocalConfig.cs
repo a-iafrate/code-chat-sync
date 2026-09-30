@@ -98,6 +98,24 @@ public sealed class LocalConfig
                 "CodeChatSync",
                 "local-config.json");
 
+    /// <summary>
+    /// Directory holding safety copies of provider-owned local data this PC modifies,
+    /// such as a tool's own chat index.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately outside the sync folder, unlike the backups taken before a chat file
+    /// is overwritten: a tool's index covers every repository on this PC, so keeping a
+    /// copy of it inside the sync repository would put unrelated clients' data there even
+    /// though Git ignores it.
+    /// </remarks>
+    public static string GetDefaultBackupDirectory() =>
+        GetHome() is { Length: > 0 } home
+            ? Path.Combine(home, "backups")
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "CodeChatSync",
+                "backups");
+
     /// <summary>Directory holding per-PC sync baselines, which are also never committed.</summary>
     public static string GetDefaultStateDirectory() =>
         GetHome() is { Length: > 0 } home

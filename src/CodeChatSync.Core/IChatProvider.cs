@@ -59,3 +59,27 @@ public interface IChatSessionProvider : IChatProvider
     /// <summary>Returns the stable session ID for a file in the project's sync folder.</summary>
     string GetSessionId(string relativePath);
 }
+
+/// <summary>
+/// Optional provider capability for tools that keep their own index of chats besides
+/// the chat files, and only list a chat that appears in it.
+/// </summary>
+/// <remarks>
+/// Copying a chat's files is then not enough to make it visible: the restored session
+/// also has to be announced to the tool. The Core does not know what such an index
+/// looks like, so it only says which sessions this PC is allowed to see and leaves the
+/// rest to the provider, which must be able to run repeatedly without duplicating
+/// anything.
+/// </remarks>
+public interface IChatSessionRegistrar : IChatSessionProvider
+{
+    /// <summary>
+    /// Makes every session in <paramref name="sessionIds"/> that is present locally
+    /// visible to the tool, skipping those it already knows about.
+    /// </summary>
+    /// <param name="dryRun">Report what would be registered without writing anything.</param>
+    SessionRegistrationResult RegisterSessions(
+        ProjectInfo project,
+        IReadOnlyCollection<string> sessionIds,
+        bool dryRun);
+}

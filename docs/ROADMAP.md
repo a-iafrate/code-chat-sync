@@ -8,6 +8,22 @@ chats live under `%LOCALAPPDATA%\Microsoft\VisualStudio\CopilotCli\session-state
 not the solution's `.vs` folder. Sync excludes agent scratch databases and the
 machine-wide session index, which may include unrelated client projects.
 
+Restoring a Visual Studio chat's files is not enough to make it appear, and
+neither is registering it in the machine-wide `session-store.db`: twelve
+restored sessions were given complete `sessions` and `turns` rows there and
+stayed absent from the list. Neither does the agent's own
+`copilot sessions import`, which writes only to the agent store. The list is
+driven by a per-solution record under `.vs/<solution>/copilot-chat/`, **inside
+the client repository**. With the owner's approval this is now an explicit,
+narrow exception to the "no tool files in client repos" rule, and those records
+are synced like any other chat file. The `session-store.db` registration is kept
+because it keeps a restored session consistent with what the agent expects of
+its own store.
+
+Still to confirm end to end: chats archived **before** this existed have no
+record in the sync repository, so the PC that owns them has to sync once with
+this version before the other PC can list them.
+
 Phase 4 is in progress. The tray window now configures the local private sync
 folder and its Git `origin`, and allows each PC to choose which synced Copilot
 sessions to restore locally without deleting or pruning the Git clone. Claude
@@ -52,6 +68,10 @@ without a recorded repository still need validation.
 - [x] `codechatsync sync` — push + pull (lightweight CLI)
 - [x] Conflict handling: same file changed on two PCs → don't overwrite,
       flag it
+- [x] Keep Git from rewriting chats (`.gitattributes` with `* -text` plus
+      `core.autocrlf=false` on the sync repository, applied to existing
+      repositories too). Line-ending translation on checkout was reporting
+      conflicts on files nobody had edited.
 
 ## Phase 3 — WinUI app: tray, watch, and auto-start
 
@@ -113,6 +133,34 @@ without a recorded repository still need validation.
 - [ ] Automatically add the deployed prompt's path to `.git/info/exclude`
       of the client repo (default: not versioned; sharing with the client's
       team stays an explicit user choice)
+
+## Phase 4quater — Restored chats actually visible
+
+- [x] Register restored sessions in Visual Studio's local `session-store.db`
+      (`IChatSessionRegistrar` in the Core, `CopilotSessionStore` in the
+      provider): insert only the project's own rows, never copy the database,
+      back it up first, and run under the "tool must be closed" guard
+- [x] Rebuild the `turns` rows from `events.jsonl`
+      (`CopilotTranscriptTurns`): the chat list renders from them, so a
+      `sessions` row alone left every restored chat invisible. Verified against
+      a transcript Visual Studio had already turned into thirteen rows itself
+- [x] Don't rewrite a descriptor whose only difference is the letter case of
+      this PC's path
+- [x] Establish what actually drives the chat list: a per-solution MessagePack
+      file under `.vs/<solution>/copilot-chat/<hash>/sessions/<session-id>`,
+      not the machine-wide database
+- [x] Owner approved writing inside a client repository's `.vs` folder, as a
+      narrow exception limited to that one Visual Studio-generated, Git-ignored
+      folder
+- [x] Sync those records (`CopilotChatWindowStore`): copied rather than
+      synthesized, with the per-PC workspace folder left out of the synced path
+      and read from disk on restore. A project where Visual Studio has never
+      opened a chat has no such folder, so the restore is refused with an
+      explanation instead of guessed at
+- [ ] Verify end to end from the other PC, which must sync once with this
+      version before its chats can be listed here
+- [ ] Populate the FTS `search_index` tables so a restored chat is findable by
+      search (only relevant once it is listed at all)
 
 ## Phase 5 — Future providers (once Visual Studio works well)
 
