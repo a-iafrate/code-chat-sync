@@ -201,6 +201,9 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
                 : SyncState.ComputeHash(localPath);
         var syncHash = SyncState.ComputeHash(syncPath);
         var baseline = state.GetBaseline(relativePath);
+        var legacyBaselineMatchesLocal = portableLocal is not null
+            && baseline is not null
+            && baseline == SyncState.ComputeHash(localPath);
 
         if (localHash is null && syncHash is null)
         {
@@ -225,7 +228,16 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
             return new SyncEntryResult { RelativePath = relativePath, Action = SyncAction.Unchanged };
         }
 
-        var localChanged = localHash != baseline;
+        // Older versions stored the hash of the local bytes before content mapping
+        // existed. An unchanged local descriptor must not conflict with a portable
+        // version pulled from Git; if the archive is still in the old form, migrate
+        // it to the portable form instead.
+        if (legacyBaselineMatchesLocal && syncHash == baseline)
+        {
+            return Push(relativePath, localPath, syncPath, localHash, portableLocal, state, dryRun);
+        }
+
+        var localChanged = localHash != baseline && !legacyBaselineMatchesLocal;
         var syncChanged = syncHash != baseline;
 
         if (localChanged && syncChanged)

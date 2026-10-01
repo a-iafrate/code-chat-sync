@@ -117,9 +117,13 @@ A local chat file is **not** rewritten when it differs from the restored form
 only in letter case. Visual Studio was observed recording the same folder as
 both `c:\` and `C:\`, and it may compare that path as an exact string, so
 normalizing the spelling risks hiding a chat that is currently visible while
-fixing nothing.
+fixing nothing. When an existing baseline still hashes the raw local
+`workspace.yaml` from before portable path mapping, an unchanged local file
+is treated as unchanged: a newer portable archive is restored, or an archive
+still in the raw format is upgraded to the portable form. Actual concurrent
+edits continue to be reported as conflicts.
 
-`ProjectInfo` holds the project's identity (normalized Git remote) plus its
+`ProjectInfo` holds the project's identity
 current local path. The Core handles copying, date comparison, backup, and
 commit/push/pull. The provider only has to say where to look.
 
