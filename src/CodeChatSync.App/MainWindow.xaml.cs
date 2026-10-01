@@ -71,7 +71,7 @@ public sealed partial class MainWindow : Window
 		SelectionHintText.Text = string.Empty;
 		ProjectsPanel.Children.Clear();
 		AvailableProjectsPanel.Children.Clear();
-		AvailableProjectsSection.Visibility = Visibility.Collapsed;
+		AvailableProjectsExpander.Visibility = Visibility.Collapsed;
 		_loadingSettings = true;
 		SessionSelectionPanel.Children.Clear();
 		_sessionGroups.Clear();
@@ -876,7 +876,8 @@ public sealed partial class MainWindow : Window
 	private void RenderAvailableProjects(IReadOnlyList<UnregisteredProject> available)
 	{
 		AvailableProjectsPanel.Children.Clear();
-		AvailableProjectsSection.Visibility = available.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+		AvailableProjectsExpander.Visibility = available.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+		AvailableProjectsCountText.Text = available.Count == 1 ? "1 project" : $"{available.Count} projects";
 		foreach (var project in available)
 		{
 			AvailableProjectsPanel.Children.Add(CreateAvailableProjectRow(project));
