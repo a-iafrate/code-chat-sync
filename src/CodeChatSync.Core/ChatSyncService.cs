@@ -184,13 +184,21 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
             };
         }
 
+        // A file the provider derived here from already-synced data is treated as absent:
+        // it is nothing to preserve, so an incoming copy replaces it instead of colliding
+        // with it, and it is never published back.
+        var derivedLocally = provider is IDerivedChatContent derived
+            && derived.IsDerivedLocally(project, relativePath);
+
         var mapper = provider is IChatContentMapper candidate && candidate.IsMapped(relativePath) ? candidate : null;
-        var portableLocal = mapper is not null && File.Exists(localPath)
+        var portableLocal = !derivedLocally && mapper is not null && File.Exists(localPath)
             ? mapper.ToPortable(project, File.ReadAllBytes(localPath))
             : null;
-        var localHash = portableLocal is not null
-            ? SyncState.ComputeHash(portableLocal)
-            : SyncState.ComputeHash(localPath);
+        var localHash = derivedLocally
+            ? null
+            : portableLocal is not null
+                ? SyncState.ComputeHash(portableLocal)
+                : SyncState.ComputeHash(localPath);
         var syncHash = SyncState.ComputeHash(syncPath);
         var baseline = state.GetBaseline(relativePath);
         var legacyBaselineMatchesLocal = portableLocal is not null

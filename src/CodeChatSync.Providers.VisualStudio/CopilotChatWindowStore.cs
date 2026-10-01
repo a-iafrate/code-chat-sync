@@ -94,6 +94,57 @@ public static class CopilotChatWindowStore
             .FirstOrDefault(name => name is { Length: > 0 });
     }
 
+    /// <summary>
+    /// An existing record to copy Visual Studio's own shapes from when rebuilding one.
+    /// The largest is chosen: a record of a conversation that got a reply has every shape
+    /// <see cref="CopilotChatWindowRecord"/> needs, while a one-sided one does not.
+    /// </summary>
+    public static ReadOnlyMemory<byte>? TryFindTemplate(string projectRoot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
+
+        var largest = Discover(projectRoot)
+            .Select(entry => new FileInfo(entry.LocalPath))
+            .Where(file => file.Exists)
+            .OrderByDescending(file => file.Length)
+            .FirstOrDefault();
+
+        if (largest is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return File.ReadAllBytes(largest.FullName);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Where a rebuilt record goes: the solution of this project that Visual Studio has
+    /// used most for chats. Picking the busiest one keeps restored chats beside the ones
+    /// already there instead of scattering them across solutions.
+    /// </summary>
+    public static string? FindBusiestSessionsDirectory(string projectRoot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
+
+        return EnumerateSessionDirectories(projectRoot)
+            .OrderByDescending(directory => SafeEnumerateFiles(directory).Count())
+            .ThenBy(directory => directory, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    /// <summary>Sessions this project already lists, across every one of its solutions.</summary>
+    public static IReadOnlyCollection<string> ListedSessionIds(string projectRoot) =>
+        new HashSet<string>(
+            Discover(projectRoot).Select(entry => entry.SessionId),
+            StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Path used inside the sync folder, free of this PC's workspace folder.</summary>
     public static string BuildRelativePath(string sessionId, string solutionRelativePath) =>
         $"{sessionId}/{PathSegment}/{solutionRelativePath}";

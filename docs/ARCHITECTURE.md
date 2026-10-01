@@ -108,7 +108,10 @@ does not match this PC's registered project path. `IChatSessionRegistrar`
 covers tools that keep their own index of chats and only list one that appears
 in it: the Core says which sessions this PC may see, the provider decides what
 announcing them means, and the step runs under the same "tool must be closed"
-rule as any other local write.
+rule as any other local write. `IDerivedChatContent` marks a local file the
+provider generated here from data that is already synced: it is never published,
+and it gives way to a copy arriving from another PC instead of conflicting with
+it, because it can always be derived again.
 
 A local chat file is **not** rewritten when it differs from the restored form
 only in letter case. Visual Studio was observed recording the same folder as
@@ -165,10 +168,56 @@ appeared anywhere in it — inside the chat's own text, not in its structure. So
 chat that never used the CLI agent, and therefore has no transcript at all, still
 restores from this file alone.
 
-These records are therefore **copied, not synthesized**, like every other chat
-file: rebuilding one would mean reproducing Visual Studio's internal types and
-nested binary blobs. Copying was verified directly — a record placed in the
+An existing record is **copied, not rebuilt**, like every other chat file, which
+keeps its full detail. Copying was verified directly: a record placed in the
 right folder under a different session ID appeared in the list as a second chat.
+
+A record is **rebuilt from the transcript** when the PC that produced the chat
+never had one (`CopilotChatWindowRecord`). That turned out to be the common
+case: of fifteen sessions on one PC, only the four opened with the *solution*
+loaded had a record, while the eleven started with the repository opened as a
+*folder* had none — so without this they could never be listed on any PC. The
+rebuild is driven by evidence, in two steps that were each confirmed in the UI:
+
+- The record is a sequence of MessagePack values: a version marker, a header,
+  then one value per message, shaped `[kind, {…}]` with `0` for a question and
+  `1` for a reply. A header alone **lists the chat but opens it empty**.
+- The message values look far heavier than they are. In a measured example the
+  question carried 18,440 characters of tool definitions and 2,495 of gathered
+  IDE context around 141 characters of text; what is said lives in content
+  blocks of kind `3`. Dropping the rest turned a 46 MB transcript into a 298 KB
+  record holding all 84 exchanges, which opened and read correctly.
+
+A rebuilt record is **never published**. It is derived from a transcript the
+sync repository already holds, so publishing it would store the same
+conversation twice; and because every rebuild mints fresh message identifiers,
+two PCs rebuilding the same chat produce different bytes — measured at 452 on
+one chat — which the sync would report as a conflict on content nobody wrote.
+Deterministic identifiers would not help, since each PC copies raw fields from
+its own template and those differ by Visual Studio edition.
+
+This is tracked per PC in
+`%LOCALAPPDATA%\CodeChatSync\state\<provider>\<project>.chat-window.json`,
+which stores the hash of each record this machine wrote. That hash is what
+distinguishes a rebuild the tool still owns from one Visual Studio has taken
+over: continuing a restored chat makes Visual Studio rewrite the record with the
+real thing, tool calls included, and from that moment it is published like any
+other chat file — otherwise the other PC would never see the continuation. In
+the other direction, a rebuild is redone when the transcript has grown past it,
+which is how a chat continued elsewhere shows its new exchanges here.
+
+Nothing is invented: an existing record on this PC is the template, and every
+field other than the identifiers, the text and the times is copied byte for
+byte, so the extension types and typed containers survive. The times come from
+the descriptor synced from the PC that held the conversation, so the list shows
+each restored chat at its real age; Visual Studio stores them as the MessagePack
+timestamp extension rather than as text, so that encoding is read from the
+template rather than assumed. A PC with no record at all has no
+shape to copy, so the rebuild is skipped with an explanation — opening a chat
+once provides both the template and the folder. Tool-call blocks are
+deliberately not rebuilt: they record file edits, confirmations and execution
+results, and inventing state that never happened on this PC would be worse than
+reading the conversation without them.
 
 `<hash>` is **not** derived from the solution: the same value was found on
 fourteen unrelated solutions of one PC, so it identifies the machine or the

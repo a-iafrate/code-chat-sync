@@ -20,9 +20,10 @@ are synced like any other chat file. The `session-store.db` registration is kept
 because it keeps a restored session consistent with what the agent expects of
 its own store.
 
-Still to confirm end to end: chats archived **before** this existed have no
-record in the sync repository, so the PC that owns them has to sync once with
-this version before the other PC can list them.
+Chats whose origin PC never had such a record — the eleven started with the
+repository opened as a folder rather than as a solution — are rebuilt from their
+transcript instead, which was confirmed working in the UI for both a one-exchange
+chat and an 84-exchange one.
 
 Phase 4 is in progress. The tray window now configures the local private sync
 folder and its Git `origin`, and allows each PC to choose which synced Copilot
@@ -161,8 +162,23 @@ without a recorded repository still need validation.
       and read from disk on restore. A project where Visual Studio has never
       opened a chat has no such folder, so the restore is refused with an
       explanation instead of guessed at
-- [ ] Verify end to end from the other PC, which must sync once with this
-      version before its chats can be listed here
+- [x] Rebuild a missing record from the transcript (`CopilotChatWindowRecord`),
+      for chats whose origin PC never had one. Header alone lists the chat but
+      opens it empty, so the message values are rebuilt too, keeping only the
+      text blocks; an existing record on the PC is the template and every other
+      field is copied byte for byte
+- [x] Verified end to end: a record synced from the other PC appears, and
+      rebuilt ones open with their conversation
+- [x] Carry the chat's real times into a rebuilt record, taken from the
+      descriptor synced from the PC that held the conversation. They are stored
+      as the MessagePack timestamp extension, not as text, so the encoding is
+      read from the template rather than assumed
+- [x] Decided: a rebuilt record is never pushed. It is derived from an
+      already-synced transcript, and two PCs rebuilding the same chat produce
+      different bytes, which would be reported as a conflict on content nobody
+      wrote. `IDerivedChatContent` keeps it out of the sync and makes it give
+      way to a real copy arriving from another PC; once Visual Studio rewrites
+      it, it is published like any other chat file
 - [ ] Populate the FTS `search_index` tables so a restored chat is findable by
       search (only relevant once it is listed at all)
 

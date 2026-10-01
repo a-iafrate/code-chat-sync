@@ -11,7 +11,8 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// The layout is undocumented, so everything here is best-effort and stays inside
 /// this project.
 /// </remarks>
-public sealed class VisualStudioChatProvider : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator
+public sealed class VisualStudioChatProvider
+    : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator, IDerivedChatContent
 {
     /// <summary>
     /// Runtime state that is specific to one PC or to a live session, and therefore
@@ -53,6 +54,9 @@ public sealed class VisualStudioChatProvider : IChatSessionRegistrar, IChatConte
     /// changes while a sync is in flight, and the lookup walks the project tree.
     /// </summary>
     private readonly Dictionary<string, string?> _workspaceIds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What this PC rebuilt, per project, loaded once per run.</summary>
+    private readonly Dictionary<string, CopilotRebuiltRecords> _rebuilt = new(StringComparer.OrdinalIgnoreCase);
 
     public VisualStudioChatProvider(string? sessionStateRoot = null, string? sessionStorePath = null)
     {
@@ -107,10 +111,14 @@ public sealed class VisualStudioChatProvider : IChatSessionRegistrar, IChatConte
         // The Chat window's own record of each conversation, which is what makes a chat
         // appear in the list at all. Discovered independently of the transcripts: a chat
         // that never used the CLI agent has one of these and no session folder.
+        var rebuilt = GetRebuiltRecords(project);
         foreach (var entry in CopilotChatWindowStore.Discover(project.LocalPath))
         {
             var info = new FileInfo(entry.LocalPath);
-            if (!info.Exists)
+
+            // A record this PC rebuilt from an already-synced transcript is not published:
+            // the other PC can rebuild its own, and two rebuilds never match byte for byte.
+            if (!info.Exists || rebuilt.IsStillOurs(entry.SessionId, entry.LocalPath))
             {
                 continue;
             }
@@ -180,12 +188,156 @@ public sealed class VisualStudioChatProvider : IChatSessionRegistrar, IChatConte
             .ToArray();
 
         var registration = _sessionStore.Register(sessions, dryRun);
+        var listing = EnsureListed(project, sessions, dryRun);
+
         return new SessionRegistrationResult
         {
             RegisteredCount = registration.RegisteredCount,
-            Reason = registration.Reason
+            ListedCount = listing.Count,
+            Reason = Combine(registration.Reason, listing.Reason)
         };
     }
+
+    /// <summary>
+    /// Gives a restored chat the Chat window record it needs to be listed and read, and
+    /// refreshes one this PC rebuilt once the conversation has moved on elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// A record Visual Studio owns is never touched: it carries detail a rebuild leaves
+    /// out, and overwriting it would throw that away. A record this PC rebuilt is ours to
+    /// redo, which is how a chat continued on another PC shows its new exchanges here.
+    /// </remarks>
+    private (int Count, string? Reason) EnsureListed(
+        ProjectInfo project,
+        IReadOnlyList<CopilotChatSession> sessions,
+        bool dryRun)
+    {
+        var rebuilt = GetRebuiltRecords(project);
+        var existing = CopilotChatWindowStore.Discover(project.LocalPath)
+            .GroupBy(entry => entry.SessionId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().LocalPath, StringComparer.OrdinalIgnoreCase);
+
+        // A chat Visual Studio currently has open is left alone: it may write the record
+        // itself at any moment, and racing it is the same hazard as copying a live file.
+        var pending = sessions
+            .Where(session => !session.IsInUse && NeedsRecord(session, existing, rebuilt))
+            .ToArray();
+        if (pending.Length == 0)
+        {
+            return (0, null);
+        }
+
+        var directory = CopilotChatWindowStore.FindBusiestSessionsDirectory(project.LocalPath);
+        var template = CopilotChatWindowStore.TryFindTemplate(project.LocalPath);
+        if (directory is null || template is null)
+        {
+            return (0, "Visual Studio has not opened a Copilot chat in this project on this PC yet, so restored "
+                + "chats have no list to appear in. Start a chat here once, then sync again.");
+        }
+
+        var written = 0;
+        var changed = false;
+        foreach (var session in pending)
+        {
+            var turns = CopilotTranscriptTurns.Read(
+                Path.Combine(session.SessionDirectory, CopilotChatDiscovery.GetTranscriptRelativePath()));
+            if (turns.Count == 0)
+            {
+                continue;
+            }
+
+            if (dryRun)
+            {
+                written++;
+                continue;
+            }
+
+            // The descriptor's own times come from the PC that held the conversation, so
+            // the list shows each restored chat at its real age.
+            var record = CopilotChatWindowRecord.TryBuild(
+                template.Value,
+                session.Id,
+                turns,
+                session.CreatedAt,
+                session.UpdatedAt ?? session.CreatedAt);
+
+            if (record is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                // Refreshed in place when it already exists, so a chat does not move
+                // between solutions behind the user's back.
+                File.WriteAllBytes(
+                    existing.TryGetValue(session.Id, out var current) ? current : Path.Combine(directory, session.Id),
+                    record);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                Persist(rebuilt, changed);
+                return (written, $"Could not add restored chats to Visual Studio's chat list: {exception.Message}");
+            }
+
+            rebuilt.Remember(session.Id, record);
+            changed = true;
+            written++;
+        }
+
+        Persist(rebuilt, changed);
+        return (written, null);
+    }
+
+    /// <summary>
+    /// Whether a chat needs a record written: it has none, or the one it has is this PC's
+    /// own rebuild and the transcript has grown past it.
+    /// </summary>
+    private static bool NeedsRecord(
+        CopilotChatSession session,
+        IReadOnlyDictionary<string, string> existing,
+        CopilotRebuiltRecords rebuilt)
+    {
+        if (!existing.TryGetValue(session.Id, out var recordPath))
+        {
+            return true;
+        }
+
+        if (!rebuilt.IsStillOurs(session.Id, recordPath))
+        {
+            return false;
+        }
+
+        var transcript = Path.Combine(session.SessionDirectory, CopilotChatDiscovery.GetTranscriptRelativePath());
+        return File.Exists(transcript)
+            && File.GetLastWriteTimeUtc(transcript) > File.GetLastWriteTimeUtc(recordPath);
+    }
+
+    private static void Persist(CopilotRebuiltRecords rebuilt, bool changed)
+    {
+        if (!changed)
+        {
+            return;
+        }
+
+        try
+        {
+            rebuilt.Save();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Only costs the next run the knowledge that these records are rebuilds.
+        }
+    }
+
+    private static string? Combine(string? first, string? second) =>
+        (first, second) switch
+        {
+            (null or "", null or "") => null,
+            (null or "", var only) => only,
+            (var only, null or "") => only,
+            _ => first + Environment.NewLine + second
+        };
 
     /// <summary>
     /// Refuses to restore a Chat window record while this PC has nowhere to put it.
@@ -211,6 +363,34 @@ public sealed class VisualStudioChatProvider : IChatSessionRegistrar, IChatConte
 
         return "Visual Studio has not opened a Copilot chat in this project on this PC yet, "
             + "so there is nowhere to put the entry that lists it. Start a chat here once, then sync again.";
+    }
+
+    /// <summary>
+    /// Whether a Chat window record is still the one this PC rebuilt, rather than one
+    /// Visual Studio has since written itself.
+    /// </summary>
+    public bool IsDerivedLocally(ProjectInfo project, string relativePath)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        if (!CopilotChatWindowStore.TryParseRelativePath(relativePath, out _))
+        {
+            return false;
+        }
+
+        var sessionId = GetSessionId(relativePath);
+        return GetRebuiltRecords(project).IsStillOurs(sessionId, MapToLocal(project, relativePath));
+    }
+
+    private CopilotRebuiltRecords GetRebuiltRecords(ProjectInfo project)
+    {
+        var key = project.SyncFolderName;
+        if (!_rebuilt.TryGetValue(key, out var records))
+        {
+            records = CopilotRebuiltRecords.Load(CopilotRebuiltRecords.GetDefaultPath(Id, project));
+            _rebuilt[key] = records;
+        }
+
+        return records;
     }
 
     private string? GetWorkspaceId(ProjectInfo project)

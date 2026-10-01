@@ -53,6 +53,27 @@ public interface IChatContentMapper
     byte[] ToLocal(ProjectInfo project, byte[] portableContent);
 }
 
+/// <summary>
+/// Optional provider capability for local files the provider generated itself from data
+/// that is already synced.
+/// </summary>
+/// <remarks>
+/// Such a file is not a copy of anything another PC owns: it was derived here and can be
+/// derived again. Publishing it would store the same content twice, and because two PCs
+/// deriving it independently rarely produce identical bytes, it would be reported as a
+/// conflict on content nobody wrote. It therefore gives way without argument to a copy
+/// arriving from another PC, which by definition is the real thing.
+/// </remarks>
+public interface IDerivedChatContent
+{
+    /// <summary>
+    /// Whether the local file behind <paramref name="relativePath"/> is still one this
+    /// provider generated. False once the tool itself has rewritten it, at which point it
+    /// is ordinary chat data and must be synced like any other.
+    /// </summary>
+    bool IsDerivedLocally(ProjectInfo project, string relativePath);
+}
+
 /// <summary>Optional provider capability for per-session restore selection.</summary>
 public interface IChatSessionProvider : IChatProvider
 {
