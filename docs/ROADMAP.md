@@ -29,14 +29,27 @@ Phase 4 is in progress. The tray window now configures the local private sync
 folder and its Git `origin`, and allows each PC to choose which synced Copilot
 sessions to restore locally without deleting or pruning the Git clone. Claude
 Code project selection from its own projects folder and separate per-provider
-sync/restore are available, but cross-path Claude transcript restore is
-blocked until safe remapping and resumption are verified. The
+sync/restore are available. The
 window registers projects by Git remote, lists their paths and last local
 sync run, removes local registrations without deleting archived chats, and can
 sync one project at a time. The automatic-sync preference is local to each PC;
 manual sync remains available when it is disabled. Conflict resolution and
 the recent-sync log remain open. Restored sessions on another PC and sessions
 without a recorded repository still need validation.
+
+A Claude Code transcript's absolute path is not confined to `cwd` — measured
+directly, 78% of a real session's lines mentioned it, scattered across tool
+parameters and free prose alike, with `cwd` itself tracking the shell's
+current directory rather than one fixed value. `ClaudeTranscriptPathMapper`
+treats the whole file as text and rewrites every occurrence, so a chat can now
+restore onto a PC where the project lives at a different path; a transcript
+archived before this existed still restores only at a matching path until a PC
+syncs it again. The portable token had to be GUID-qualified after a short,
+conventional one collided with literal source code inside this very project's
+own development transcript. Verified against real, multi-megabyte transcripts
+of this project's own development and end to end through `ChatSyncService`;
+**not yet verified** is whether Claude Code itself correctly lists and resumes
+a transcript rewritten this way.
 
 ## Phase 0 — Discover (first concrete step)
 
@@ -196,15 +209,22 @@ without a recorded repository still need validation.
       under a different folder: candidates are resolved to their repository root
       and transcripts are archived under their working directory relative to it.
       Without this, a project run from `src` could not be registered at all
-- [ ] Safely remap Claude transcript paths between PCs and verify Claude can
-      display/resume the restored sessions. **Until then a Claude project only
-      restores onto a PC where it sits at the same absolute path**: the storage
-      folder is rebuilt correctly anywhere, but a transcript records its working
-      directory on every line and those are not rewritten, so a restore onto a
-      different path is refused with an explanation. The app warns about this
-      when adding a Claude project. Verify process detection for Claude hosted by
-      another process name such as `node` before claiming complete runtime
-      protection or cross-PC restoration.
+- [x] Remap Claude transcript paths between PCs
+      (`ClaudeTranscriptPathMapper`): the whole file is treated as text and
+      every occurrence of the project root is replaced, since the path is not
+      confined to `cwd` — it is scattered through tool parameters and free
+      prose too, and `cwd` itself tracks the shell's current directory rather
+      than staying fixed. A transcript archived before this existed still
+      restores only at a matching path until a PC syncs it again. The token
+      needed a GUID suffix after a short, conventional-looking one collided
+      with literal source code in this project's own development transcript.
+      Verified against real, multi-megabyte transcripts of this project's own
+      development and end to end through `ChatSyncService`
+- [ ] Confirm Claude Code itself correctly lists and resumes a transcript
+      whose paths were rewritten this way — not yet tested against the real
+      app, only against the transcript file. Verify process detection for
+      Claude hosted by another process name such as `node` before claiming
+      complete runtime protection or cross-PC restoration.
 - [ ] Copilot CLI provider (`~/.copilot`)
 - [ ] Evaluate a VS Code provider (probably unnecessary, given VS Code's
       native sync is already available)

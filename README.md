@@ -125,15 +125,19 @@ are archived; memory and subagent artifacts are excluded. A session started
 in a project subfolder (for example running Claude Code from `src`) is
 archived under that subfolder's path and restored to the matching folder on
 this PC, since Claude Code stores it separately from a session started at the
-repository root. Claude transcripts record an absolute `cwd`: restoring to a PC
-where the project lives at a different path (or the transcript has no usable
-`cwd`) is explicitly skipped, not silently treated as a successful restore.
-Same-path restores are supported; cross-path remapping and confirmation that
-Claude displays resumed sessions on another PC remain to be implemented.
-Only processes named `claude` are currently detected; Claude launched through
-a differently named host such as `node` may not be detected, so close all
-Claude processes before using Claude discovery or sync. Do not rely on this
-integration yet for complete cross-PC Claude chat restore.
+repository root. A transcript's absolute path is not confined to `cwd` — it
+turns up in tool parameters and in free text too, and `cwd` itself tracks the
+shell's current directory rather than staying fixed — so restoring now
+rewrites every occurrence to this PC's own project path, letting a chat
+restore onto a PC where the project lives somewhere else entirely. A chat
+archived before this existed still restores only where the path already
+matches, until a PC syncs it again. What has **not** been confirmed yet is
+whether Claude Code itself correctly lists and resumes a chat rewritten this
+way — verified so far against real transcript files and the sync pipeline
+itself, not against the Claude Code app. Only processes named `claude` are
+currently detected; Claude launched through a differently named host such as
+`node` may not be detected, so close all Claude processes before using Claude
+discovery or sync.
 
 By default, a sync never touches a tool's chat files while that tool is
 running (Visual Studio chats are left alone; Claude Code discovery and sync are

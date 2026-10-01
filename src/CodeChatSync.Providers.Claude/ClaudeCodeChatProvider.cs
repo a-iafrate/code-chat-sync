@@ -37,8 +37,18 @@ namespace CodeChatSync.Providers.Claude;
 /// local files it maps. Restores are refused when the target storage folder is shared
 /// with a different local path, or when it or the target file is a link.
 /// </para>
+/// <para>
+/// Path remapping: a transcript's absolute path is not confined to <c>cwd</c> — it is
+/// recorded on most lines, in tool parameters, and in free text such as system-reminder
+/// attachments and the assistant's own prose. <see cref="ClaudeTranscriptPathMapper"/>
+/// therefore treats the whole file as text and replaces every occurrence of the project's
+/// root, so a chat restored on a PC where the project lives at a different path keeps a
+/// working, consistent history instead of referring to a folder that does not exist
+/// there. A transcript archived before this existed still carries its source PC's raw
+/// path and restores only where that already matches, exactly as before.
+/// </para>
 /// </remarks>
-public sealed class ClaudeCodeChatProvider : IChatSessionProvider, IChatRestoreValidator
+public sealed class ClaudeCodeChatProvider : IChatSessionProvider, IChatRestoreValidator, IChatContentMapper
 {
     private readonly IProcessGuard _processGuard;
     private readonly ClaudeProjectsDirectory _directory;
@@ -153,12 +163,47 @@ public sealed class ClaudeCodeChatProvider : IChatSessionProvider, IChatRestoreV
         ArgumentException.ThrowIfNullOrWhiteSpace(archivedPath);
         ClaudeProjectDiscovery.EnsureClosed(_processGuard);
 
+        // Already portabilized by a push from some PC: ToLocal rewrites every occurrence
+        // of the marker to this PC's own project path, wherever that is.
+        if (ClaudeTranscriptPathMapper.IsPortable(File.ReadAllBytes(archivedPath)))
+        {
+            return null;
+        }
+
+        // Archived before this PC's provider learned to remap paths: it still carries its
+        // source PC's raw absolute path, and is only safe to restore where that already
+        // matches. It becomes restorable anywhere once some PC pushes it again.
         var projectRoot = NormalizeProjectPath(project);
         var metadata = ClaudeTranscriptReader.Read(archivedPath, includeTitle: false);
         return LocalPaths.TryNormalize(metadata.WorkingDirectory, out var archivedPathCwd)
             && LocalPaths.IsWithin(archivedPathCwd, projectRoot)
                 ? null
-                : "The archived Claude transcript's cwd is outside this PC's project folder; restore is refused until path remapping is supported.";
+                : "This chat was archived before path remapping, from a PC where the project lives "
+                + "at a different path. It will restore here once a PC with this project at a known "
+                + "path syncs it again.";
+    }
+
+    /// <summary>Every transcript file may carry the project's absolute path.</summary>
+    public bool IsMapped(string relativePath) => IsTranscriptPath(relativePath);
+
+    public byte[] ToPortable(ProjectInfo project, byte[] localContent)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        return ClaudeTranscriptPathMapper.ToPortable(localContent, project.LocalPath);
+    }
+
+    public byte[] ToLocal(ProjectInfo project, byte[] portableContent)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        return ClaudeTranscriptPathMapper.ToLocal(portableContent, project.LocalPath);
+    }
+
+    private static bool IsTranscriptPath(string relativePath)
+    {
+        var normalized = RelativePathGuard.Normalize(relativePath);
+        var separator = normalized.LastIndexOf('/');
+        var fileName = separator < 0 ? normalized : normalized[(separator + 1)..];
+        return ClaudeProjectsDirectory.TryGetSessionId(fileName, out _);
     }
 
     /// <summary>

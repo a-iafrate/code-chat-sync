@@ -277,7 +277,7 @@ public class ClaudeCodeChatProviderTests : IDisposable
     }
 
     [Fact]
-    public void Sync_ArchivesTranscriptButRefusesRestoreAcrossDifferentProjectPaths()
+    public void Sync_RestoresATranscriptOntoADifferentProjectPath()
     {
         var syncRoot = _fixture.Combine("sync");
         Directory.CreateDirectory(syncRoot);
@@ -285,7 +285,7 @@ public class ClaudeCodeChatProviderTests : IDisposable
 
         var pathA = _fixture.CreateLocalProject("pc-a", "client-app");
         var rootA = _fixture.ProjectsRoot;
-        var transcript = _fixture.WriteTranscript(FolderFor(pathA), SessionA, pathA, title: "Title");
+        _fixture.WriteTranscript(FolderFor(pathA), SessionA, pathA, title: "Title");
         var pushed = service.Sync(new ClaudeCodeChatProvider(new FakeProcessGuard(), rootA), ClaudeProjectsFixture.Project(pathA), syncRoot, new SyncState());
 
         var pathB = _fixture.CreateLocalProject("pc-b", "d", "client-app");
@@ -293,14 +293,48 @@ public class ClaudeCodeChatProviderTests : IDisposable
         var pulled = service.Sync(new ClaudeCodeChatProvider(new FakeProcessGuard(), rootB), ClaudeProjectsFixture.Project(pathB), syncRoot, new SyncState());
 
         Assert.Equal(1, pushed.PushedCount);
+        Assert.Equal(1, pulled.PulledCount);
+        var restored = Path.Combine(rootB, FolderFor(pathB), $"{SessionA}.jsonl");
+        var restoredText = File.ReadAllText(restored);
+        // JSON escapes every backslash as two, so the path is searched for in that form.
+        Assert.Contains(JsonEscape(pathB), restoredText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(JsonEscape(pathA), restoredText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(ClaudeTranscriptPathMapper.ProjectRootToken, restoredText, StringComparison.Ordinal);
+    }
+
+    private static string JsonEscape(string path) => path.Replace("\\", "\\\\", StringComparison.Ordinal);
+
+    /// <summary>
+    /// A transcript archived before this PC's provider learned to remap paths still
+    /// carries its source PC's raw absolute path, and must keep the old, safe behavior:
+    /// restorable only where that path already matches.
+    /// </summary>
+    [Fact]
+    public void Sync_RefusesALegacyUnmappedTranscriptAcrossDifferentProjectPaths()
+    {
+        var syncRoot = _fixture.Combine("sync");
+        var pathA = _fixture.CreateLocalProject("pc-a", "client-app");
+        var syncFolder = ClaudeProjectsFixture.Project(pathA).SyncFolderName;
+
+        // Placed directly in the sync folder, bypassing a push, to stand in for a chat
+        // archived by a version of the tool that did not yet portabilize paths.
+        var legacyPath = Path.Combine(syncRoot, "claudecode", syncFolder, $"{SessionA}.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        var rawTranscript = _fixture.WriteTranscript("raw", SessionA, pathA);
+        File.Copy(rawTranscript, legacyPath);
+
+        var pathB = _fixture.CreateLocalProject("pc-b", "d", "client-app");
+        var rootB = _fixture.Combine("pc-b-claude", "projects");
+        var pulled = new ChatSyncService(new FakeProcessGuard()).Sync(
+            new ClaudeCodeChatProvider(new FakeProcessGuard(), rootB), ClaudeProjectsFixture.Project(pathB), syncRoot, new SyncState());
+
         Assert.Equal(0, pulled.PulledCount);
         var skipped = Assert.Single(pulled.Entries);
         Assert.Equal(SyncAction.Skipped, skipped.Action);
-        Assert.Contains("cwd", skipped.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("different path", skipped.Reason, StringComparison.OrdinalIgnoreCase);
         var restored = Path.Combine(rootB, FolderFor(pathB), $"{SessionA}.jsonl");
         Assert.False(File.Exists(restored));
-        var syncFolder = ClaudeProjectsFixture.Project(pathA).SyncFolderName;
-        Assert.Equal(File.ReadAllText(transcript), File.ReadAllText(Path.Combine(syncRoot, "claudecode", syncFolder, $"{SessionA}.jsonl")));
+        Assert.Equal(File.ReadAllText(rawTranscript), File.ReadAllText(legacyPath));
     }
 
     private ClaudeCodeChatProvider CreateProvider() =>

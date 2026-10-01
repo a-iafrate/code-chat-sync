@@ -102,9 +102,18 @@ public interface IChatProvider
 ```
 
 `IChatSessionProvider` optionally exposes a stable per-session ID for local
-restore choices. `IChatRestoreValidator` optionally refuses an archived file
-before any local overwrite; Claude uses it to reject transcripts whose `cwd`
-falls outside this PC's registered project folder. `IChatSessionRegistrar`
+restore choices. `IChatContentMapper` lets a provider rewrite a file's
+per-PC content around the sync: the sync folder always holds the portable
+form, used for comparison and baselines too, so a file rewritten for this PC
+is never mistaken for a local edit. Visual Studio's descriptor keeps the path
+in two known fields; Claude's transcript scatters it through structured
+fields and free text alike, so its mapper treats the whole file as text
+instead (`ClaudeTranscriptPathMapper`, described under Claude Code below).
+`IChatRestoreValidator` optionally refuses an archived file before any local
+overwrite; Claude uses it to reject a transcript that still carries another
+PC's raw, unmapped path and whose recorded `cwd` falls outside this PC's
+registered project folder — a transcript already in portable form restores
+anywhere, since restoring it rewrites the path regardless. `IChatSessionRegistrar`
 covers tools that keep their own index of chats and only list one that appears
 in it: the Core says which sessions this PC may see, the provider decides what
 announcing them means, and the step runs under the same "tool must be closed"
@@ -434,18 +443,49 @@ A `sync` run is pull → copy → commit → push:
   Only top-level session `.jsonl` files are archived; memory and session
   artifacts are not included.
 
-  **A Claude project must sit at the same absolute path on every PC**, which is
-  the practical cost of the open remapping work below. The storage folder itself
-  is rebuilt correctly anywhere — it is derived from the destination's own path —
-  but a transcript records its working directory on every line, and the tool
-  cannot yet rewrite those. So an archived transcript's `cwd` must fall inside
-  the destination PC's project folder before restore; otherwise it is skipped
-  explicitly and reported. Chats are still archived from such a PC, so nothing is
-  lost: only the restore is held back. Visual Studio has no such limit because
-  its descriptor keeps the path in one field, replaced by `${project}`.
-  Cross-PC path remapping and restored-session visibility are unverified.
-  The runtime guard currently recognizes process name `claude`, not every
-  possible host such as `node`; close Claude completely before syncing.
+  A transcript's absolute path is **not confined to `cwd`**: it is recorded on
+  most lines, in tool parameters (`file_path`, `path`, duplicated again under
+  `wireToolInputs`), and in free text such as system-reminder attachments and
+  the assistant's own prose — measured directly on a real session, 78% of its
+  lines mentioned the path somewhere, and `cwd` itself tracked the shell's
+  current directory as the agent moved around, not one fixed value. Extracting
+  only fields with a known name would miss the free-text occurrences, so
+  `ClaudeTranscriptPathMapper` instead treats the whole file as text and
+  replaces every occurrence of the project's root — wherever it sits, whatever
+  field or prose it is in — with a portable token, the way a careful
+  find-and-replace would. A path outside the project root (a temp folder the
+  agent happened to use, a different repository) never matches and is left
+  alone. Matching is case-insensitive and boundary-aware, so `C:\repo` does not
+  also match inside `C:\repo-backup`.
+
+  The token is not a short, conventional-looking placeholder such as the
+  `${project}` Visual Studio's descriptor mapper uses: a transcript can contain
+  literal source code, and a tool call that writes code mentioning a common
+  interpolation syntax (shell, JavaScript, templates) would have that text
+  mistaken for the marker on restore. That exact collision was found testing
+  against a real transcript of this project's own development, where a test
+  fixture literally contained `${project}` as a string constant, and corrupted
+  that one historical message on restore — never a real file, since a
+  transcript is only ever a historical log, not something replayed. The token
+  is GUID-qualified to make an unrelated, organic occurrence astronomically
+  unlikely; the residual case — this tool's own source code, which must define
+  the constant as a string literal, appearing in a transcript of someone using
+  Claude Code to develop CodeChatSync itself — is not eliminated by any choice
+  of token, but stays harmless for the same reason.
+
+  A transcript archived **before** this existed still carries its source PC's
+  raw, unmapped path, and restores only where that already matches, exactly as
+  before; it becomes restorable anywhere once some PC syncs it again. Visual
+  Studio's descriptor mapper does not face the free-text problem, since its
+  format keeps the path in two known fields.
+
+  Verified: the mapper round-trips a real, multi-megabyte transcript of this
+  project's own development byte-for-byte, and `ChatSyncService` correctly
+  pushes from one path and restores onto a different one end to end. **Not yet
+  verified:** whether Claude Code's own session list and `--resume` correctly
+  display and resume a transcript rewritten this way. The runtime guard
+  currently recognizes process name `claude`, not every possible host such as
+  `node`; close Claude completely before syncing.
 - **Copilot CLI** — data under `~/.copilot`, per session.
 - **VS Code** — chats indexed by workspace hash; with VS Code's native
   GitHub-based sync, a dedicated provider is probably unnecessary.
