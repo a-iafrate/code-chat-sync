@@ -131,9 +131,9 @@ public sealed class SyncCoordinator(Func<SyncOrchestrator> orchestratorFactory)
 
         var summary = $"{result.PushedCount} pushed, {result.PulledCount} pulled";
 
-        if (result.RegisteredSessionCount > 0)
+        if (result.ListedSessionCount > 0)
         {
-            summary += $", {result.RegisteredSessionCount} restored chat(s) now listed";
+            summary += $", {result.ListedSessionCount} restored chat(s) now listed";
         }
 
         if (result.HasConflicts)

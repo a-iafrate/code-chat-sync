@@ -46,6 +46,13 @@ public sealed record SessionRegistrationResult
     /// <summary>Sessions added to the tool's index, or that would be in a dry run.</summary>
     public required int RegisteredCount { get; init; }
 
+    /// <summary>
+    /// Restored chats that were missing from the tool's visible chat list and are now in
+    /// it. Separate from <see cref="RegisteredCount"/> because a tool can know about a
+    /// chat without offering it to the user.
+    /// </summary>
+    public int ListedCount { get; init; }
+
     /// <summary>Why nothing could be registered, when the step did not run.</summary>
     public string? Reason { get; init; }
 
@@ -83,6 +90,9 @@ public sealed record SyncReport
 
     public bool HasBlockedPulls => BlockedByProviderCount > 0 || (Registration?.IsBlockedByProvider ?? false);
 
-    /// <summary>Restored chats this run made visible to the provider's tool.</summary>
+    /// <summary>Restored chats this run announced to the provider's tool.</summary>
     public int RegisteredSessionCount => Registration?.RegisteredCount ?? 0;
+
+    /// <summary>Restored chats this run added to the tool's visible chat list.</summary>
+    public int ListedSessionCount => Registration?.ListedCount ?? 0;
 }

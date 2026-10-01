@@ -178,9 +178,14 @@ internal static class SyncCommand
 
         if (report.Registration is { } registration)
         {
+            if (registration.ListedCount > 0)
+            {
+                Console.WriteLine($"  Added {registration.ListedCount} restored chat(s) to the tool's chat list.");
+            }
+
             if (registration.RegisteredCount > 0)
             {
-                Console.WriteLine($"  Listed {registration.RegisteredCount} restored chat(s) in the tool's own chat list.");
+                Console.WriteLine($"  Announced {registration.RegisteredCount} restored chat(s) to the tool's index.");
             }
 
             if (registration.Reason is { Length: > 0 } reason)

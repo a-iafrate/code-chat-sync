@@ -71,8 +71,11 @@ public sealed record SyncRunResult
 
     public int ConflictCount => Projects.Sum(project => project.Report.ConflictCount);
 
-    /// <summary>Restored chats this run made visible in their tool's own chat list.</summary>
+    /// <summary>Restored chats this run announced to their tool.</summary>
     public int RegisteredSessionCount => Projects.Sum(project => project.Report.RegisteredSessionCount);
+
+    /// <summary>Restored chats this run added to their tool's visible chat list.</summary>
+    public int ListedSessionCount => Projects.Sum(project => project.Report.ListedSessionCount);
 
     public bool HasConflicts => ConflictCount > 0;
 
