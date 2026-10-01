@@ -154,6 +154,86 @@ public sealed class ChatSyncMappedContentTests : IDisposable
         Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)), spanHash);
     }
 
+    [Fact]
+    public void Sync_PullsNewPortableContentFromLegacyRawBaselineAndMigratesBaseline()
+    {
+        var previousLocal = Utf8($"cwd: {_localRoot}\\old\r\nbranch: main\r\n");
+        var nextPortable = Utf8($"cwd: {ProjectToken}\\new\r\nbranch: feature\r\n");
+        var expectedLocal = Utf8($"cwd: {_localRoot}\\new\r\nbranch: feature\r\n");
+        WriteLocal(previousLocal);
+        WriteSync(nextPortable);
+        var state = new SyncState();
+        var legacyBaseline = SyncState.ComputeHash(LocalFile());
+        state.SetBaseline(RelativePath, legacyBaseline);
+        var provider = new MappedFakeProvider(_localRoot);
+
+        var report = Sync(provider, state);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(SyncAction.Pulled, entry.Action);
+        Assert.Equal(expectedLocal, File.ReadAllBytes(LocalFile()));
+        Assert.Equal(nextPortable, File.ReadAllBytes(SyncFile()));
+        Assert.NotNull(entry.BackupPath);
+        Assert.Equal(previousLocal, File.ReadAllBytes(entry.BackupPath!));
+        Assert.Equal(SyncState.ComputeHash(nextPortable), state.GetBaseline(RelativePath));
+        var backupCount = Directory.GetFiles(ChatSyncService.GetBackupDirectory(_syncRoot), "*", SearchOption.AllDirectories).Length;
+
+        var secondReport = Sync(provider, state);
+
+        Assert.Equal(SyncAction.Unchanged, Assert.Single(secondReport.Entries).Action);
+        Assert.Equal(expectedLocal, File.ReadAllBytes(LocalFile()));
+        Assert.Equal(SyncState.ComputeHash(nextPortable), state.GetBaseline(RelativePath));
+        Assert.Equal(backupCount, Directory.GetFiles(ChatSyncService.GetBackupDirectory(_syncRoot), "*", SearchOption.AllDirectories).Length);
+    }
+
+    [Fact]
+    public void Sync_ReportsConflictWhenLocalRawContentAndRemotePortableContentBothChangedFromLegacyBaseline()
+    {
+        var previousLocal = Utf8($"cwd: {_localRoot}\\old\r\nbranch: main\r\n");
+        var editedLocal = Utf8($"cwd: {_localRoot}\\local-edit\r\nbranch: local-feature\r\n");
+        var changedRemote = Utf8($"cwd: {ProjectToken}\\remote-edit\r\nbranch: remote-feature\r\n");
+        WriteLocal(previousLocal);
+        var state = new SyncState();
+        var legacyBaseline = SyncState.ComputeHash(LocalFile());
+        state.SetBaseline(RelativePath, legacyBaseline);
+        WriteLocal(editedLocal);
+        WriteSync(changedRemote);
+
+        var report = Sync(new MappedFakeProvider(_localRoot), state);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(SyncAction.Conflict, entry.Action);
+        Assert.True(report.HasConflicts);
+        Assert.Equal(editedLocal, File.ReadAllBytes(LocalFile()));
+        Assert.Equal(changedRemote, File.ReadAllBytes(SyncFile()));
+        Assert.Null(entry.BackupPath);
+        Assert.Equal(legacyBaseline, state.GetBaseline(RelativePath));
+        Assert.False(Directory.Exists(ChatSyncService.GetBackupDirectory(_syncRoot)));
+    }
+
+    [Fact]
+    public void Sync_PushesLocalEditWhenArchiveStillMatchesLegacyRawBaseline()
+    {
+        var previousLocal = Utf8($"cwd: {_localRoot}\\src\r\nbranch: main\r\n");
+        var editedLocal = Utf8($"cwd: {_localRoot}\\src\r\nbranch: feature\r\n");
+        var expectedPortable = Utf8($"cwd: {ProjectToken}\\src\r\nbranch: feature\r\n");
+        WriteLocal(previousLocal);
+        WriteSync(previousLocal);
+        var state = new SyncState();
+        var legacyBaseline = SyncState.ComputeHash(LocalFile());
+        state.SetBaseline(RelativePath, legacyBaseline);
+        WriteLocal(editedLocal);
+
+        var report = Sync(new MappedFakeProvider(_localRoot), state);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(SyncAction.Pushed, entry.Action);
+        Assert.Equal(editedLocal, File.ReadAllBytes(LocalFile()));
+        Assert.Equal(expectedPortable, File.ReadAllBytes(SyncFile()));
+        Assert.Equal(SyncState.ComputeHash(expectedPortable), state.GetBaseline(RelativePath));
+        Assert.Null(entry.BackupPath);
+        Assert.False(Directory.Exists(ChatSyncService.GetBackupDirectory(_syncRoot)));
+    }
     private SyncReport Sync(MappedFakeProvider provider, SyncState state, IProcessGuard? guard = null) =>
         new ChatSyncService(guard ?? new FakeProcessGuard()).Sync(provider, _project, _syncRoot, state);
 

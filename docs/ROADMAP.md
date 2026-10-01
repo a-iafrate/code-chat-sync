@@ -72,8 +72,12 @@ without a recorded repository still need validation.
       `core.autocrlf=false` on the sync repository, applied to existing
       repositories too). Line-ending translation on checkout was reporting
       conflicts on files nobody had edited.
+- [x] Migrate old raw-file baselines when portable path mapping is introduced:
+      a locally unchanged `workspace.yaml` must not conflict with its new
+      portable archived form. `.gitignore` only excludes local backups; it
+      cannot resolve a content conflict in a chat descriptor.
 
-## Phase 3 — WinUI app: tray, watch, and auto-start
+## Phase 3
 
 - [x] `CodeChatSync.App`: tray icon (`H.NotifyIcon.WinUI`)
 - [x] Watch integrated into the app's process: automatic sync once Visual
