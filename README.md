@@ -35,7 +35,10 @@ leaves both sides untouched instead of merging two transcripts. A sync never
 copies chats before the pull succeeds when the sync folder is a Git repository
 with a remote: on a new PC whose branch was never pushed, the remote branch is
 fetched and pulled first; if Git is missing or the remote cannot be reached,
-the run stops.
+the run stops. The sync repository is also set up to store every chat exactly
+as written (`.gitattributes` with `core.autocrlf` off), so a PC with a
+different line-ending setting never turns into a false conflict on a file
+nobody actually changed.
 
 ## Tray app
 
@@ -44,6 +47,10 @@ Visual Studio has been closed for long enough that its chat files have
 settled. Its menu shows the current status and offers *Sync now*, a status
 window, *Start with Windows*, and *Exit*. It only interrupts you when a run
 needs attention, such as a conflict or a pull that could not be completed.
+
+| Sync | Projects | Settings |
+| --- | --- | --- |
+| ![Sync page](docs/screens/sc1.png) | ![Projects page](docs/screens/sc2.png) | ![Settings page](docs/screens/sc3.png) |
 
 The window opened from the tray has three pages in a left navigation pane:
 **Sync** (status, *Sync now*, repository and folder summary with buttons to
@@ -65,21 +72,38 @@ A blank URL leaves an existing remote unchanged. The window reports errors
 without saving a failed configuration change.
 
 On the *Projects* page, expand *Add a project*, pick the *Visual Studio (Copilot)*
-provider, and choose a folder inside a project's Git repository.
-enter one under *Advanced options*. Registered projects are collapsed by default;
-expand one to see its provider, remote, local folder and last sync run, sync just
-that project, or remove its registration on this PC. To add Claude Code,
-pick the *Claude Code* provider under *Add a project*, choose *Find Claude Code
-projects*, and select a project discovered from
-`%USERPROFILE%\.claude\projects` (or `$CLAUDE_CONFIG_DIR\projects`). Claude
-candidates need a local Git repository root with a remote; the same remote
-may have both providers, displayed separately. Removing a registration does
-**not** delete local or archived chats. `codechatsync add` remains available
-for Visual Studio in the CLI.
+provider, and choose a folder inside a project's Git repository. If none is
+detected, enter one under *Advanced options*. A project already registered
+from another PC shows up under *Available in the sync repository* (collapsed
+by default): expand it and use *Browse and add…* next to one to register it
+here by its local folder, without retyping its remote. Registered projects
+are collapsed by default too; expand one to see its provider, remote, local
+folder and last sync run, sync just that project, or remove its registration
+on this PC. To add Claude Code, pick the *Claude Code* provider under *Add a
+project*, choose *Find Claude Code projects*, and select a Git repository
+discovered from `%USERPROFILE%\.claude\projects` (or
+`$CLAUDE_CONFIG_DIR\projects`); sessions started in any of its subfolders are
+included automatically, since Claude Code stores each separately. Claude
+candidates need a Git remote on the repository root; the same remote may have
+both providers, displayed separately. Removing a registration does **not**
+delete local or archived chats. `codechatsync add` remains available for
+Visual Studio in the CLI.
+
+A Visual Studio chat restored from another PC now shows up in Visual Studio's
+own Chat History panel too, not just on disk: alongside the transcript,
+CodeChatSync keeps in sync the per-solution entry Visual Studio reads
+(`.vs/<solution>/copilot-chat/...`), rebuilding it from the transcript when
+the source PC never had one of its own — for example when the chat was
+started with the repository open as a plain folder rather than as a solution.
+This is the one narrow, deliberate exception to never writing inside a client
+repository; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Continuing a
+restored chat on another PC updates that entry the next time each side syncs,
+without duplicating it.
 
 On the *Sync* page, turn off *Automatic sync* to stop syncing automatically
-after the chat tools close on this PC; the change is saved immediately.
-existing installations. *Sync now* and per-project sync remain available.
+after the chat tools close on this PC; the change is saved immediately and
+defaults to on, including for existing installations. *Sync now* and
+per-project sync remain available either way.
 
 Under *Settings* > *Appearance*, choose *Use system setting*, *Light*, or *Dark*;
 the window theme changes and is saved immediately on this PC. Existing installations
@@ -97,8 +121,11 @@ These choices do not stop uploads from registered projects and do **not** delete
 existing local chats or anything from the repository.
 
 **Claude Code limitation:** only top-level `<session-id>.jsonl` transcripts
-are archived; memory, subagent artifacts and sessions started in subfolders
-are excluded. Claude transcripts record an absolute `cwd`: restoring to a PC
+are archived; memory and subagent artifacts are excluded. A session started
+in a project subfolder (for example running Claude Code from `src`) is
+archived under that subfolder's path and restored to the matching folder on
+this PC, since Claude Code stores it separately from a session started at the
+repository root. Claude transcripts record an absolute `cwd`: restoring to a PC
 where the project lives at a different path (or the transcript has no usable
 `cwd`) is explicitly skipped, not silently treated as a successful restore.
 Same-path restores are supported; cross-path remapping and confirmation that
