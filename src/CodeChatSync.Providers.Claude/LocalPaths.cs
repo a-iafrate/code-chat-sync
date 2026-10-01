@@ -41,6 +41,39 @@ internal static class LocalPaths
 
     public static bool AreSame(string left, string right) => string.Equals(left, right, Comparison);
 
+    /// <summary>
+    /// True when <paramref name="candidate"/> is <paramref name="root"/> or sits below it.
+    /// </summary>
+    /// <remarks>
+    /// Claude Code stores a session under a folder derived from the directory it was
+    /// started in, which is often a subfolder of the project rather than its root.
+    /// </remarks>
+    public static bool IsWithin(string candidate, string root)
+    {
+        if (AreSame(candidate, root))
+        {
+            return true;
+        }
+
+        var prefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
+        return candidate.StartsWith(prefix, Comparison);
+    }
+
+    /// <summary>
+    /// Where <paramref name="candidate"/> sits inside <paramref name="root"/>, with forward
+    /// slashes and empty for the root itself, so the sync folder holds the same path on
+    /// every PC.
+    /// </summary>
+    public static string GetRelativeDirectory(string candidate, string root)
+    {
+        if (AreSame(candidate, root))
+        {
+            return string.Empty;
+        }
+
+        return Path.GetRelativePath(root, candidate).Replace('\\', '/').Trim('/');
+    }
+
     /// <summary>True when the entry exists and is a symbolic link, junction or other reparse point.</summary>
     public static bool IsReparsePoint(FileSystemInfo entry)
     {

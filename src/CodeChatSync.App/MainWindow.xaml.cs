@@ -528,6 +528,83 @@ public sealed partial class MainWindow : Window
 		}
 	}
 
+	/// <summary>A registerable Claude Code project: one Git repository, however many folders it was run from.</summary>
+	private sealed record ClaudeRepositoryCandidate(string ProjectPath, bool Eligible, string Description);
+
+	/// <summary>
+	/// Turns the working directories Claude Code recorded into the projects that can
+	/// actually be registered.
+	/// </summary>
+	/// <remarks>
+	/// Claude Code stores a session under the directory it was started in, which is often
+	/// a subfolder — running it from a repository's <c>src</c> is the common case. Each
+	/// candidate is therefore resolved to its repository root and the ones sharing a root
+	/// are offered as a single project, since that root is what gets registered and what
+	/// the provider collects transcripts beneath.
+	/// </remarks>
+	private static ClaudeRepositoryCandidate[] GroupClaudeCandidatesByRepository(
+		IReadOnlyList<ClaudeProjectCandidate> candidates)
+	{
+		var usable = candidates
+			.Where(candidate => candidate.LocalPathExists
+				&& !candidate.HasStorageCollision
+				&& candidate.StorageFolderName is not null
+				&& candidate.Sessions.Any(session => session.IsInStorageFolder))
+			.Select(candidate => (Candidate: candidate, Root: GitRemoteReader.FindRepositoryRoot(candidate.LocalPath)))
+			.ToArray();
+
+		var grouped = usable
+			.Where(entry => entry.Root is not null)
+			.GroupBy(entry => entry.Root!, StringComparer.OrdinalIgnoreCase)
+			.Select(group =>
+			{
+				var remote = GitRemoteReader.FindPrimaryRemoteUrl(group.Key);
+				var transcripts = group.Sum(entry =>
+					entry.Candidate.Sessions.Count(session => session.IsInStorageFolder));
+				var folders = group.Count();
+
+				if (string.IsNullOrWhiteSpace(remote) || !ProjectIdentity.TryFromRemote(remote, out _))
+				{
+					return new ClaudeRepositoryCandidate(
+						group.Key,
+						false,
+						"Unavailable: this Git repository has no usable remote, and a project is identified by its remote.");
+				}
+
+				var from = folders == 1 ? string.Empty : $" from {folders} folders";
+				return new ClaudeRepositoryCandidate(
+					group.Key, true, $"Git remote: {remote} · {transcripts} transcripts{from}");
+			});
+
+		// Working directories outside any repository cannot be registered: say so rather
+		// than hiding them, since the user chose where to run Claude Code.
+		var orphans = usable
+			.Where(entry => entry.Root is null)
+			.Select(entry => new ClaudeRepositoryCandidate(
+				entry.Candidate.LocalPath,
+				false,
+				"Unavailable: this folder is not inside a Git repository."));
+
+		var unusable = candidates
+			.Where(candidate => !candidate.LocalPathExists
+				|| candidate.HasStorageCollision
+				|| candidate.StorageFolderName is null
+				|| !candidate.Sessions.Any(session => session.IsInStorageFolder))
+			.Select(candidate => new ClaudeRepositoryCandidate(
+				candidate.LocalPath,
+				false,
+				candidate.LocalPathExists
+					? "Unavailable: Claude Code's storage folder for this path is shared with another folder."
+					: "Unavailable: this folder no longer exists on this PC."));
+
+		return
+		[
+			.. grouped.Concat(orphans).Concat(unusable)
+				.OrderByDescending(candidate => candidate.Eligible)
+				.ThenBy(candidate => candidate.ProjectPath, StringComparer.OrdinalIgnoreCase)
+		];
+	}
+
 	private async void OnDiscoverClaudeClick(object sender, RoutedEventArgs e)
 	{
 		DiscoverClaudeButton.IsEnabled = false;
@@ -535,26 +612,15 @@ public sealed partial class MainWindow : Window
 		try
 		{
 			var processGuard = _syncHost.CreateDiscoveryProcessGuard();
-			var candidates = await Task.Run(() => ClaudeProjectDiscovery.DiscoverCandidates(processGuard)
-				.Select(candidate =>
-				{
-					var root = candidate.LocalPathExists ? GitRemoteReader.FindRepositoryRoot(candidate.LocalPath) : null;
-					var remote = root is not null && string.Equals(root, candidate.LocalPath, StringComparison.OrdinalIgnoreCase)
-						? GitRemoteReader.FindPrimaryRemoteUrl(root) : null;
-					var eligible = candidate.LocalPathExists && !candidate.HasStorageCollision
-						&& candidate.StorageFolderName is not null
-						&& candidate.Sessions.Any(session => session.IsInStorageFolder)
-						&& !string.IsNullOrWhiteSpace(remote)
-						&& ProjectIdentity.TryFromRemote(remote, out _);
-					return (Candidate: candidate, Remote: remote, Eligible: eligible);
-				}).ToArray());
+			var candidates = await Task.Run(() => GroupClaudeCandidatesByRepository(
+				ClaudeProjectDiscovery.DiscoverCandidates(processGuard)));
 
 			if (candidates.Length == 0)
 			{
 				ClaudeCandidatePanel.Children.Add(CreateHintCard("No Claude Code sessions with recorded project folders were found."));
 			}
 
-			foreach (var (candidate, remote, eligible) in candidates)
+			foreach (var candidate in candidates)
 			{
 				var row = new Grid { ColumnSpacing = 16 };
 				row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -564,22 +630,20 @@ public sealed partial class MainWindow : Window
 				var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
 				text.Children.Add(new TextBlock
 				{
-					Text = candidate.LocalPath, TextTrimming = TextTrimming.CharacterEllipsis,
+					Text = candidate.ProjectPath, TextTrimming = TextTrimming.CharacterEllipsis,
 					FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 13
 				});
 				text.Children.Add(new TextBlock
 				{
 					Style = (Style)WindowRoot.Resources["CaptionStyle"],
-					Text = eligible
-						? $"Git remote: {remote} · {candidate.Sessions.Count(session => session.IsInStorageFolder)} transcripts"
-						: "Unavailable: folder missing, unsafe storage mapping, or no Git remote at the project root."
+					Text = candidate.Description
 				});
 				Grid.SetColumn(text, 1);
 				row.Children.Add(text);
-				if (eligible)
+				if (candidate.Eligible)
 				{
 					var add = new Button { Content = "Add", VerticalAlignment = VerticalAlignment.Center };
-					add.Click += async (_, _) => await AddClaudeProjectAsync(candidate.LocalPath, add);
+					add.Click += async (_, _) => await AddClaudeProjectAsync(candidate.ProjectPath, add);
 					Grid.SetColumn(add, 2);
 					row.Children.Add(add);
 				}
@@ -617,7 +681,10 @@ public sealed partial class MainWindow : Window
 			if (await LoadSettingsAsync())
 			{
 				AddProjectExpander.IsExpanded = false;
-				ShowProjectMessage("Claude Code enabled for this Git project on this PC.", InfoBarSeverity.Success);
+				ShowProjectMessage(
+					$"Claude Code enabled for this Git project on this PC. Its transcripts restore only onto a PC "
+					+ $"where the project sits at the same path, '{path}', until transcript paths can be rewritten.",
+					InfoBarSeverity.Success);
 			}
 		}
 		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException

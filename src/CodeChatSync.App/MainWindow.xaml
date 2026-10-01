@@ -404,8 +404,11 @@
 									</StackPanel>
 
 									<StackPanel x:Name="ClaudeAddPanel" Spacing="8" Visibility="Collapsed">
-										<TextBlock Text="Pick a project from your Claude Code projects folder. Only Git repository roots with a remote can be added; the same remote can also have Copilot chats. Close Claude Code completely (including node-hosted instances) first, unless Sync Claude Code while it is running is on in Settings > Advanced."
+										<TextBlock Text="Pick a project from your Claude Code projects folder. Only Git repository roots with a remote can be added, and sessions started in their subfolders are included; the same remote can also have Copilot chats. Close Claude Code completely (including node-hosted instances) first, unless Sync Claude Code while it is running is on in Settings > Advanced."
 												   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+										<InfoBar IsOpen="True" IsClosable="False" Severity="Warning"
+												 Title="Keep the project at the same path on every PC"
+												 Message="A Claude Code transcript records the folder it ran in on every line, and the tool cannot yet rewrite those paths. Chats are archived either way, but a PC where this project lives at a different path will skip restoring them and say so in the sync report." />
 										<Button x:Name="DiscoverClaudeButton" Content="Find Claude Code projects"
 												Click="OnDiscoverClaudeClick" />
 										<StackPanel x:Name="ClaudeCandidatePanel" Spacing="4" />

@@ -184,11 +184,19 @@ without a recorded repository still need validation.
       transcript metadata, map Git remotes, and present a selectable list in
       the app. Archive first-level `.jsonl` transcripts under a separate
       provider key; permit same-path restores and reject foreign/missing `cwd`.
+- [x] Include sessions started in a project subfolder, which Claude Code stores
+      under a different folder: candidates are resolved to their repository root
+      and transcripts are archived under their working directory relative to it.
+      Without this, a project run from `src` could not be registered at all
 - [ ] Safely remap Claude transcript paths between PCs and verify Claude can
-      display/resume the restored sessions. Extend discovery to sessions
-      started in project subfolders and verify process detection for Claude
-      hosted by another process name such as `node` before claiming complete
-      runtime protection or cross-PC restoration.
+      display/resume the restored sessions. **Until then a Claude project only
+      restores onto a PC where it sits at the same absolute path**: the storage
+      folder is rebuilt correctly anywhere, but a transcript records its working
+      directory on every line and those are not rewritten, so a restore onto a
+      different path is refused with an explanation. The app warns about this
+      when adding a Claude project. Verify process detection for Claude hosted by
+      another process name such as `node` before claiming complete runtime
+      protection or cross-PC restoration.
 - [ ] Copilot CLI provider (`~/.copilot`)
 - [ ] Evaluate a VS Code provider (probably unnecessary, given VS Code's
       native sync is already available)

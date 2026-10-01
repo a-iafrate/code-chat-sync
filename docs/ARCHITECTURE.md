@@ -104,7 +104,7 @@ public interface IChatProvider
 `IChatSessionProvider` optionally exposes a stable per-session ID for local
 restore choices. `IChatRestoreValidator` optionally refuses an archived file
 before any local overwrite; Claude uses it to reject transcripts whose `cwd`
-does not match this PC's registered project path. `IChatSessionRegistrar`
+falls outside this PC's registered project folder. `IChatSessionRegistrar`
 covers tools that keep their own index of chats and only list one that appears
 in it: the Core says which sessions this PC may see, the provider decides what
 announcing them means, and the step runs under the same "tool must be closed"
@@ -412,10 +412,33 @@ A `sync` run is pull → copy → commit → push:
   `~/.claude/projects/` or `$CLAUDE_CONFIG_DIR/projects`. Candidate working
   directories come from transcript `cwd` metadata, not decoding Claude's
   undocumented, lossy folder naming. Only projects at a Git repository root
-  with a remote can be registered in the app. Only top-level session `.jsonl`
-  files are archived; memory, session artifacts, and subfolder sessions are
-  not included. An archived transcript's `cwd` must match the destination
-  PC's project path before restore; otherwise it is skipped explicitly.
+  with a remote can be registered in the app, but a session **started in a
+  subfolder belongs to that project**: Claude Code derives a session's storage
+  folder from the directory it was run from, so one repository spreads over as
+  many folders as the subdirectories used — running it from `src` is the common
+  case, and requiring the root would have left those sessions unregisterable.
+  The app therefore resolves every candidate working directory to its
+  repository root and offers the ones sharing a root as a single project.
+
+  Each transcript is archived under its working directory relative to the
+  project root (`src/<session-id>.jsonl`, or the plain file name for the root
+  itself). That relative path is identical on every PC, which is what lets a
+  restore rebuild the right storage folder locally. A transcript is only
+  considered when it sits in the folder its own `cwd` maps to, so nothing is
+  silently relocated by a restore.
+
+  Only top-level session `.jsonl` files are archived; memory and session
+  artifacts are not included.
+
+  **A Claude project must sit at the same absolute path on every PC**, which is
+  the practical cost of the open remapping work below. The storage folder itself
+  is rebuilt correctly anywhere — it is derived from the destination's own path —
+  but a transcript records its working directory on every line, and the tool
+  cannot yet rewrite those. So an archived transcript's `cwd` must fall inside
+  the destination PC's project folder before restore; otherwise it is skipped
+  explicitly and reported. Chats are still archived from such a PC, so nothing is
+  lost: only the restore is held back. Visual Studio has no such limit because
+  its descriptor keeps the path in one field, replaced by `${project}`.
   Cross-PC path remapping and restored-session visibility are unverified.
   The runtime guard currently recognizes process name `claude`, not every
   possible host such as `node`; close Claude completely before syncing.

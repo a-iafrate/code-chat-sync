@@ -111,6 +111,17 @@ public static class ClaudeProjectDiscovery
         ];
     }
 
+    /// <summary>
+    /// Whether a candidate working directory belongs to the project rooted at
+    /// <paramref name="projectRoot"/>, which it does when it is that folder or sits below
+    /// it. Claude Code stores a session under the directory it was started in, so a
+    /// project's sessions are spread across its subfolders.
+    /// </summary>
+    public static bool IsWithinProject(string candidatePath, string projectRoot) =>
+        LocalPaths.TryNormalize(candidatePath, out var candidate)
+        && LocalPaths.TryNormalize(projectRoot, out var root)
+        && LocalPaths.IsWithin(candidate, root);
+
     /// <summary>Throws when any Claude Code process is running.</summary>
     internal static void EnsureClosed(IProcessGuard processGuard)
     {

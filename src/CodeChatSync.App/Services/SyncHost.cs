@@ -94,26 +94,37 @@ public sealed class SyncHost : IAsyncDisposable
     public Task<bool> RemoveProjectAsync(ProjectIdentity identity) =>
         _coordinator.TryUpdateConfigurationAsync(() => ProjectRegistration.Remove(identity), _cancellation.Token);
 
+    /// <summary>
+    /// Registers a Claude Code project from its repository root, which is what the list
+    /// offers: its sessions may have been started in any of its subfolders, each stored by
+    /// Claude Code under a folder of its own.
+    /// </summary>
     public Task<bool> AddClaudeProjectAsync(string path) =>
         _coordinator.TryUpdateConfigurationAsync(() =>
         {
-            var candidate = ClaudeProjectDiscovery.DiscoverCandidates(CreateDiscoveryProcessGuard())
-                .FirstOrDefault(item => string.Equals(item.LocalPath, path, StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException("The selected Claude Code project is no longer available. Refresh the list.");
-            if (!candidate.LocalPathExists || candidate.HasStorageCollision
-                || candidate.StorageFolderName is null || !candidate.Sessions.Any(session => session.IsInStorageFolder))
+            // Checked again here rather than trusted from the list, which may be stale.
+            var usable = ClaudeProjectDiscovery.DiscoverCandidates(CreateDiscoveryProcessGuard())
+                .Where(item => ClaudeProjectDiscovery.IsWithinProject(item.LocalPath, path))
+                .Where(item => item.LocalPathExists && !item.HasStorageCollision
+                    && item.StorageFolderName is not null
+                    && item.Sessions.Any(session => session.IsInStorageFolder))
+                .ToArray();
+
+            if (usable.Length == 0)
             {
-                throw new InvalidOperationException("The Claude Code project has no safely mapped transcripts on this PC.");
+                throw new InvalidOperationException(
+                    "This project has no safely mapped Claude Code transcripts on this PC. Refresh the list.");
             }
 
-            var root = GitRemoteReader.FindRepositoryRoot(candidate.LocalPath);
-            if (root is null || !string.Equals(root, candidate.LocalPath, StringComparison.OrdinalIgnoreCase)
-                || string.IsNullOrWhiteSpace(GitRemoteReader.FindPrimaryRemoteUrl(root)))
+            var root = GitRemoteReader.FindRepositoryRoot(path);
+            var remote = root is null ? null : GitRemoteReader.FindPrimaryRemoteUrl(root);
+            if (root is null || !string.Equals(root, path, StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(remote))
             {
-                throw new InvalidOperationException("The Claude Code project must match a Git repository root with a remote.");
+                throw new InvalidOperationException("The Claude Code project must be a Git repository root with a remote.");
             }
 
-            var existing = LocalConfig.Load().Find(ProjectIdentity.FromRemote(GitRemoteReader.FindPrimaryRemoteUrl(root)!));
+            var existing = LocalConfig.Load().Find(ProjectIdentity.FromRemote(remote));
             if (existing is not null && !string.Equals(existing.LocalPath, root, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException("This Git remote is already registered at a different local folder on this PC.");
