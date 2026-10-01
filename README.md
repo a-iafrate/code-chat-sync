@@ -54,10 +54,17 @@ needs attention, such as a conflict or a pull that could not be completed.
 
 The window opened from the tray has three pages in a left navigation pane:
 **Sync** (status, *Sync now*, repository and folder summary with buttons to
-open the repository in the browser and the folder in File Explorer, automatic sync,
-last run), **Projects** (registered projects, adding projects, and chats to
-restore on this PC), and **Settings** (sync repository, appearance, advanced
-options, and help).
+open the repository in the browser and the folder in File Explorer, a
+conflicts section, automatic sync, last run), **Projects** (registered
+projects, adding projects, and chats to restore on this PC), and **Settings**
+(sync repository, appearance, advanced options, and help).
+
+When the same chat changed on this PC and in the sync folder since the last
+sync, it shows up under *Conflicts* on the *Sync* page instead of being
+guessed at. Pick *Keep local* or *Keep remote* for each one: the other side is
+overwritten, and a replaced local file is backed up first exactly as any other
+restore would be. The section stays out of the way when there is nothing to
+resolve, and refreshes after every sync.
 
 On the first launch the window opens by itself with a short **setup guide**:
 it walks through choosing the sync repository, adding projects, and running

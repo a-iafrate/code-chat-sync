@@ -123,6 +123,75 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
         return sessionIds.Count == 0 ? null : registrar.RegisterSessions(project, sessionIds, dryRun);
     }
 
+    /// <summary>
+    /// Forces one side of a conflict to win: <paramref name="keepLocal"/> pushes this PC's
+    /// version over the sync folder's copy, otherwise the sync folder's version is pulled
+    /// onto this PC.
+    /// </summary>
+    /// <remarks>
+    /// Applied unconditionally, the same way an ordinary push or pull would be: if the
+    /// chosen side no longer has the file, that is reported rather than guessed at, and if
+    /// the file is no longer actually in conflict this simply repeats what a normal sync
+    /// would have done. The caller does not need to re-check that a conflict still exists
+    /// before calling this, since the result already says what happened.
+    /// </remarks>
+    public SyncEntryResult ResolveConflict(
+        IChatProvider provider,
+        ProjectInfo project,
+        string syncRootPath,
+        SyncState state,
+        string relativePath,
+        bool keepLocal)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentException.ThrowIfNullOrWhiteSpace(syncRootPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+
+        relativePath = RelativePathGuard.Normalize(relativePath);
+        var projectSyncRoot = Path.Combine(Path.GetFullPath(syncRootPath), provider.Id, project.SyncFolderName);
+        var localPath = provider.MapToLocal(project, relativePath);
+        var syncPath = RelativePathGuard.ResolveUnder(projectSyncRoot, relativePath);
+
+        if (IsInUse(provider, project, relativePath))
+        {
+            // The provider reports this chat as open: copying either way risks a torn file.
+            return new SyncEntryResult
+            {
+                RelativePath = relativePath,
+                Action = SyncAction.Skipped,
+                Reason = "The chat is currently open."
+            };
+        }
+
+        var derivedLocally = provider is IDerivedChatContent derived && derived.IsDerivedLocally(project, relativePath);
+        var mapper = provider is IChatContentMapper candidate && candidate.IsMapped(relativePath) ? candidate : null;
+
+        if (keepLocal)
+        {
+            var portableLocal = !derivedLocally && mapper is not null && File.Exists(localPath)
+                ? mapper.ToPortable(project, File.ReadAllBytes(localPath))
+                : null;
+            var localHash = derivedLocally
+                ? null
+                : portableLocal is not null
+                    ? SyncState.ComputeHash(portableLocal)
+                    : SyncState.ComputeHash(localPath);
+
+            return Push(relativePath, localPath, syncPath, localHash, portableLocal, state, dryRun: false);
+        }
+
+        var syncHash = SyncState.ComputeHash(syncPath);
+        var runningProcesses = _processGuard.GetRunningProcesses(provider.ProcessNames);
+        return Pull(provider, project, relativePath, localPath, syncPath, syncHash, syncRootPath, state, runningProcesses, dryRun: false, mapper);
+    }
+
+    private static bool IsInUse(IChatProvider provider, ProjectInfo project, string relativePath) =>
+        provider.Discover(project).Any(location =>
+            location.IsInUse
+            && string.Equals(RelativePathGuard.Normalize(location.RelativePath), relativePath, StringComparison.OrdinalIgnoreCase));
+
     private static (HashSet<string> Paths, HashSet<string> InUsePaths) CollectRelativePaths(
         IChatProvider provider,
         ProjectInfo project,

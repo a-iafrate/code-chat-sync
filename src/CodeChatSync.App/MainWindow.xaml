@@ -309,6 +309,28 @@
 								</StackPanel>
 							</Border>
 
+							<Expander x:Name="ConflictsExpander" IsExpanded="True" Visibility="Collapsed"
+									  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,16,0,0">
+								<Expander.Header>
+									<Grid MinHeight="44">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="32" />
+											<ColumnDefinition Width="*" />
+										</Grid.ColumnDefinitions>
+										<FontIcon Glyph="&#xE7BA;" FontSize="16" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+										<StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center">
+											<TextBlock Text="Conflicts" />
+											<TextBlock x:Name="ConflictsCountText" Style="{StaticResource CaptionStyle}" />
+										</StackPanel>
+									</Grid>
+								</Expander.Header>
+								<StackPanel Spacing="8" Padding="48,4,0,4">
+									<TextBlock Text="Changed on this PC and in the sync folder since the last sync. Pick a side to keep; the other is overwritten, and a replaced local file is backed up first."
+											   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+									<StackPanel x:Name="ConflictsPanel" Spacing="4" />
+								</StackPanel>
+							</Expander>
+
 							<TextBlock Text="Automatic sync" Style="{StaticResource SectionTitleStyle}" />
 							<Border Style="{StaticResource CardStyle}">
 								<Grid>

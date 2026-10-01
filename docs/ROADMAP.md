@@ -126,7 +126,12 @@ a transcript rewritten this way.
       (`AvailableProjects.FindUnregistered`) that this PC hasn't added yet, so
       the user can register one by picking its local folder instead of
       retyping its remote
-- [ ] Conflicts section: "keep local / keep remote" choice
+- [x] Conflicts section on the Sync page: lists chats changed on both sides
+      from a dry-run comparison, collapsed when empty. "Keep local" / "Keep
+      remote" calls `ChatSyncService.ResolveConflict` (Core, unit-tested),
+      which reuses the ordinary push/pull path — backup before overwrite and
+      the open-chat check both still apply — so this is the in-app version of
+      the manual fixes used earlier in this project's own development
 - [ ] Sync log
 
 ## Phase 4bis — Chat Library (priority over Prompt Library)

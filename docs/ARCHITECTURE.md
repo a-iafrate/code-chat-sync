@@ -573,9 +573,9 @@ baseline file. A per-project sync matches the normalized remote exactly so a
 similarly named project cannot be synced accidentally. The configuration
 window follows the Windows 11 settings style (Mica backdrop, custom title bar,
 left `NavigationView`) and is split into three pages: **Sync** (status card with
-*Sync now*, repository/folder summary, automatic sync toggle, last run),
-**Projects** (registered projects, add form, restore selection), and
-**Settings** (sync repository, appearance). The summary's open buttons use
+*Sync now*, repository/folder summary, a conflicts section, automatic sync
+toggle, last run), **Projects** (registered projects, add form, restore
+selection), and **Settings** (sync repository, appearance). The summary's open buttons use
 `GitRemoteWebUrl` (in `CodeChatSync.Git`) to turn the origin remote (https,
 scp-like or `ssh://`, Azure DevOps SSH) into a credential-free https page; the
 button stays hidden for local or unrecognized remotes. The automatic sync toggle and theme
@@ -591,6 +591,19 @@ and can enable Claude alongside Visual Studio for the same remote. The local
 path is shared per remote; use the same repository root for both. Session
 lists, baselines and restore selections are provider-scoped. Provider-specific
 metadata parsing and local storage mapping remain in the provider, not Core.
+
+The Sync page's **Conflicts** section lists every chat currently changed on
+both sides, from the same dry-run comparison a sync performs — skipping the
+git pull a real sync would do first, exactly like `--dry-run` — and stays
+collapsed when there is nothing to resolve. *Keep local* or *Keep remote*
+calls `ChatSyncService.ResolveConflict` (Core), which forces that side to win
+by reusing the ordinary push or pull path: a pull still backs up the replaced
+local file first, and a currently open chat is still refused. It applies
+regardless of whether the file is still actually in conflict when clicked, so
+stale UI state cannot block it; a side that turns out to have nothing to keep
+is reported instead of guessed at, the same as an ordinary sync. The list
+refreshes after any sync completes, manual or automatic, and after resolving
+one entry.
 
 `CodeChatSync.Cli` remains available to anyone who
 prefers running `add`/`sync`/`discover` from a terminal or a script,

@@ -5,6 +5,9 @@ using CodeChatSync.Providers.VisualStudio;
 
 namespace CodeChatSync.App.Services;
 
+/// <summary>One chat changed on both sides since the last sync, needing a choice.</summary>
+public sealed record ConflictInfo(string ProviderId, ProjectInfo Project, string RelativePath, string? Reason);
+
 /// <summary>
 /// Composes both chat providers for the tray app, watches their processes, and reports sync outcomes.
 /// </summary>
@@ -81,6 +84,80 @@ public sealed class SyncHost : IAsyncDisposable
 
     public Task<SyncOutcome> SyncProjectAsync(ProjectIdentity identity) =>
         _coordinator.RunAsync(new SyncRunOptions { ExactProjectRemote = identity.NormalizedRemote }, _cancellation.Token);
+
+    /// <summary>
+    /// Chats currently changed on both sides across every registered project: the same
+    /// comparison a sync performs, without writing anything, surfaced for the user to
+    /// resolve one by one. A pull from the sync repository is skipped for this check the
+    /// same way <c>--dry-run</c> skips it, so this reflects the current local clone rather
+    /// than fetching other PCs' latest pushes first.
+    /// </summary>
+    public async Task<(IReadOnlyList<ConflictInfo> Conflicts, string? Message)> GetConflictsAsync()
+    {
+        var outcome = await _coordinator.RunAsync(new SyncRunOptions { DryRun = true }, _cancellation.Token).ConfigureAwait(false);
+        if (outcome.Status is SyncOutcomeStatus.AlreadyRunning)
+        {
+            return ([], "A sync is already running. Try again once it finishes.");
+        }
+
+        if (outcome.Result is not { } result)
+        {
+            return ([], outcome.Summary);
+        }
+
+        var conflicts = result.Projects
+            .SelectMany(project => project.Report.Entries
+                .Where(entry => entry.Action == SyncAction.Conflict)
+                .Select(entry => new ConflictInfo(project.ProviderId, project.Project, entry.RelativePath, entry.Reason)))
+            .ToArray();
+
+        return (conflicts, null);
+    }
+
+    /// <summary>
+    /// Resolves one conflict by forcing the chosen side to win: "keep local" pushes this
+    /// PC's version over the sync folder's copy, otherwise the sync folder's version is
+    /// pulled onto this PC and the replaced local file is backed up first.
+    /// </summary>
+    public Task<bool> ResolveConflictAsync(ConflictInfo conflict, bool keepLocal) =>
+        _coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            var localConfig = LocalConfig.Load();
+            if (localConfig.SyncRootPath is not { Length: > 0 } syncRoot)
+            {
+                throw new InvalidOperationException("No sync folder is configured on this PC.");
+            }
+
+            var guard = ProcessGuard.ForSync(_processGuard, localConfig, [_visualStudioProvider, _claudeProvider]);
+            var provider = ResolveProvider(conflict.ProviderId, guard);
+            var statePath = new SyncWorkspace(localConfig, SharedConfig.Load(syncRoot)).GetStatePath(conflict.ProviderId, conflict.Project);
+            var state = SyncState.Load(statePath);
+
+            var result = new ChatSyncService(guard)
+                .ResolveConflict(provider, conflict.Project, syncRoot, state, conflict.RelativePath, keepLocal);
+            state.Save(statePath);
+
+            if (result.Action is SyncAction.Skipped)
+            {
+                throw new InvalidOperationException(result.Reason ?? "The conflict could not be resolved.");
+            }
+        }, _cancellation.Token);
+
+    private IChatProvider ResolveProvider(string providerId, IProcessGuard guard)
+    {
+        if (string.Equals(providerId, _visualStudioProvider.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return _visualStudioProvider;
+        }
+
+        if (string.Equals(providerId, _claudeProvider.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            // Rebuilt with this call's own guard, same as every other sync-triggering path.
+            return new ClaudeCodeChatProvider(guard);
+        }
+
+        throw new ArgumentException($"Unknown provider '{providerId}'.", nameof(providerId));
+    }
 
     public Task<bool> AddProjectAsync(
         string path,

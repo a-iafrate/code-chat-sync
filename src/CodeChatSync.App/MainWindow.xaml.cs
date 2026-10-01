@@ -72,6 +72,8 @@ public sealed partial class MainWindow : Window
 		ProjectsPanel.Children.Clear();
 		AvailableProjectsPanel.Children.Clear();
 		AvailableProjectsExpander.Visibility = Visibility.Collapsed;
+		ConflictsPanel.Children.Clear();
+		ConflictsExpander.Visibility = Visibility.Collapsed;
 		_loadingSettings = true;
 		SessionSelectionPanel.Children.Clear();
 		_sessionGroups.Clear();
@@ -142,6 +144,7 @@ public sealed partial class MainWindow : Window
 			}
 
 			anyProjectSynced = await LoadSessionsAsync(config, folder);
+			await LoadConflictsAsync();
 			return true;
 		}
 		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
@@ -953,6 +956,93 @@ public sealed partial class MainWindow : Window
 		}
 	}
 
+	/// <summary>Shows chats changed on both sides since the last sync, letting the user pick a side.</summary>
+	private async Task LoadConflictsAsync()
+	{
+		var (conflicts, message) = await _syncHost.GetConflictsAsync();
+		if (message is { Length: > 0 })
+		{
+			ShowAutomaticSyncMessage(message, InfoBarSeverity.Warning);
+		}
+
+		ConflictsPanel.Children.Clear();
+		ConflictsExpander.Visibility = conflicts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+		ConflictsCountText.Text = conflicts.Count == 1 ? "1 chat" : $"{conflicts.Count} chats";
+		foreach (var conflict in conflicts)
+		{
+			ConflictsPanel.Children.Add(CreateConflictRow(conflict));
+		}
+	}
+
+	private Border CreateConflictRow(ConflictInfo conflict)
+	{
+		var row = new Grid { ColumnSpacing = 16 };
+		row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+		row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		row.Children.Add(CreateProviderBadge(conflict.ProviderId, 32));
+
+		var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+		text.Children.Add(new TextBlock
+		{
+			Text = conflict.Project.DisplayName ?? conflict.Project.Identity.Slug,
+			TextTrimming = TextTrimming.CharacterEllipsis
+		});
+		text.Children.Add(new TextBlock
+		{
+			Style = (Style)WindowRoot.Resources["CaptionStyle"],
+			Text = conflict.RelativePath,
+			FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+			FontSize = 13,
+			TextTrimming = TextTrimming.CharacterEllipsis
+		});
+		Grid.SetColumn(text, 1);
+		row.Children.Add(text);
+
+		var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+		var keepLocal = new Button { Content = "Keep local" };
+		keepLocal.Click += async (_, _) => await ResolveConflictAsync(conflict, keepLocal: true, keepLocal);
+		actions.Children.Add(keepLocal);
+		var keepRemote = new Button { Content = "Keep remote" };
+		keepRemote.Click += async (_, _) => await ResolveConflictAsync(conflict, keepLocal: false, keepRemote);
+		actions.Children.Add(keepRemote);
+		Grid.SetColumn(actions, 2);
+		row.Children.Add(actions);
+
+		return new Border { Style = (Style)WindowRoot.Resources["CardStyle"], Child = row };
+	}
+
+	/// <summary>
+	/// Forces the chosen side to win, the same way a manual file-by-file fix would:
+	/// "keep local" pushes this PC's version over the sync folder's copy, "keep remote"
+	/// pulls the sync folder's version and backs up the local file first.
+	/// </summary>
+	private async Task ResolveConflictAsync(ConflictInfo conflict, bool keepLocal, Button button)
+	{
+		button.IsEnabled = false;
+		try
+		{
+			if (!await _syncHost.ResolveConflictAsync(conflict, keepLocal))
+			{
+				ShowAutomaticSyncMessage("A sync is in progress. Try resolving the conflict again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			ShowAutomaticSyncMessage(
+				$"Kept the {(keepLocal ? "local" : "remote")} version of {conflict.RelativePath}.", InfoBarSeverity.Success);
+			await LoadConflictsAsync();
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException)
+		{
+			ShowAutomaticSyncMessage($"Could not resolve the conflict: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			button.IsEnabled = true;
+		}
+	}
+
 	private Expander CreateProjectRow(string providerId, ProjectIdentity project, string name,
 		string localPath, DateTime? lastRunUtc, int chatCount)
 	{
@@ -1300,6 +1390,7 @@ public sealed partial class MainWindow : Window
 		try
 		{
 			ShowOutcome(await _syncHost.SyncNowAsync());
+			await LoadConflictsAsync();
 		}
 		finally
 		{
@@ -1309,7 +1400,11 @@ public sealed partial class MainWindow : Window
 	}
 
 	private void OnSyncCompleted(object? sender, SyncOutcome outcome) =>
-		DispatcherQueue.TryEnqueue(() => ShowOutcome(outcome));
+		DispatcherQueue.TryEnqueue(async () =>
+		{
+			ShowOutcome(outcome);
+			await LoadConflictsAsync();
+		});
 
 	private void OnProviderRunningChanged(object? sender, bool isRunning) =>
 		DispatcherQueue.TryEnqueue(UpdateStatus);
