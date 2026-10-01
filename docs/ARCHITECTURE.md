@@ -516,7 +516,19 @@ shared configuration. An explicit remote is possible when none can be
 detected. Sync and client folders must not overlap, and two different remotes
 must not share a sync folder name. Removing a project from this PC deletes only
 its local registration; the shared mapping, synced chats and local chat files
-stay intact. The displayed last run is the modification time of this PC's
+stay intact.
+
+The Projects page also lists projects another PC has already registered —
+`AvailableProjects.FindUnregistered` (Core, unit-tested) diffs the shared
+mapping against this PC's local registrations, purely in memory, no provider
+discovery involved. A project stays off that list once it is registered here
+for *any* provider, since adding a second provider for an already-known
+project goes through that provider's own add flow instead. Picking one from
+the list only asks for its local folder: the remote and sync folder name come
+from the shared entry as-is and are passed to `ProjectRegistration.Add` as an
+explicit override, the same mechanism the manual add form's "Remote override"
+field already uses, so a folder that is not even a Git repository can still be
+registered this way. The displayed last run is the modification time of this PC's
 baseline file. A per-project sync matches the normalized remote exactly so a
 similarly named project cannot be synced accidentally. The configuration
 window follows the Windows 11 settings style (Mica backdrop, custom title bar,

@@ -70,6 +70,8 @@ public sealed partial class MainWindow : Window
 		SaveSelectionButton.IsEnabled = false;
 		SelectionHintText.Text = string.Empty;
 		ProjectsPanel.Children.Clear();
+		AvailableProjectsPanel.Children.Clear();
+		AvailableProjectsSection.Visibility = Visibility.Collapsed;
 		_loadingSettings = true;
 		SessionSelectionPanel.Children.Clear();
 		_sessionGroups.Clear();
@@ -806,7 +808,7 @@ public sealed partial class MainWindow : Window
 	/// <summary>Builds the project and restore rows; returns whether any project has synced on this PC.</summary>
 	private async Task<bool> LoadSessionsAsync(LocalConfig config, string syncRoot)
 	{
-		var groups = await Task.Run(() =>
+		var (groups, available) = await Task.Run(() =>
 		{
 			var shared = SharedConfig.Load(syncRoot);
 			var results = new List<(string ProviderId, ProjectIdentity Project, string Name, string LocalPath, DateTime? LastRunUtc, LocalRestoreSelection? Selection, IReadOnlyList<(string Id, string? Name, DateTimeOffset? UpdatedAt)> Sessions)>();
@@ -847,8 +849,10 @@ public sealed partial class MainWindow : Window
 				}
 			}
 
-			return results;
+			return (Results: results, Available: AvailableProjects.FindUnregistered(config, shared));
 		});
+
+		RenderAvailableProjects(available);
 
 		if (groups.Count == 0)
 		{
@@ -866,6 +870,86 @@ public sealed partial class MainWindow : Window
 		}
 
 		return groups.Any(group => group.LastRunUtc is not null);
+	}
+
+	/// <summary>Shows the projects already known to the sync repository but not registered here.</summary>
+	private void RenderAvailableProjects(IReadOnlyList<UnregisteredProject> available)
+	{
+		AvailableProjectsPanel.Children.Clear();
+		AvailableProjectsSection.Visibility = available.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+		foreach (var project in available)
+		{
+			AvailableProjectsPanel.Children.Add(CreateAvailableProjectRow(project));
+		}
+	}
+
+	private Border CreateAvailableProjectRow(UnregisteredProject project)
+	{
+		var row = new Grid { ColumnSpacing = 16 };
+		row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+		row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		row.Children.Add(new FontIcon { Glyph = "", Style = (Style)WindowRoot.Resources["CardIconStyle"] });
+
+		var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+		text.Children.Add(new TextBlock { Text = project.Name, TextTrimming = TextTrimming.CharacterEllipsis });
+		text.Children.Add(new TextBlock
+		{
+			Style = (Style)WindowRoot.Resources["CaptionStyle"],
+			Text = project.Remote,
+			FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+			FontSize = 13,
+			TextTrimming = TextTrimming.CharacterEllipsis
+		});
+		Grid.SetColumn(text, 1);
+		row.Children.Add(text);
+
+		var add = new Button { Content = "Browse and add…", VerticalAlignment = VerticalAlignment.Center };
+		add.Click += async (_, _) => await AddAvailableProjectAsync(project, add);
+		Grid.SetColumn(add, 2);
+		row.Children.Add(add);
+
+		return new Border { Style = (Style)WindowRoot.Resources["CardStyle"], Child = row };
+	}
+
+	/// <summary>
+	/// Registers a project already known to the sync repository: only the local folder is
+	/// missing, so the remote and sync folder name are reused as-is instead of being
+	/// re-derived from a Git remote on this PC.
+	/// </summary>
+	private async Task AddAvailableProjectAsync(UnregisteredProject project, Button button)
+	{
+		button.IsEnabled = false;
+		try
+		{
+			var path = await PickFolderAsync();
+			if (path is null)
+			{
+				return;
+			}
+
+			var added = await _syncHost.AddProjectAsync(path, project.Name, project.Remote);
+			if (!added)
+			{
+				ShowProjectMessage("A sync is in progress. Try adding the project again when it finishes.", InfoBarSeverity.Warning);
+				return;
+			}
+
+			if (await LoadSettingsAsync())
+			{
+				ShowProjectMessage("Project registered on this PC. Sync now to archive its chats.", InfoBarSeverity.Success);
+			}
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+			or InvalidDataException or ArgumentException or InvalidOperationException or NotSupportedException
+			or System.Runtime.InteropServices.COMException)
+		{
+			ShowProjectMessage($"Could not add project: {exception.Message}", InfoBarSeverity.Error);
+		}
+		finally
+		{
+			button.IsEnabled = true;
+		}
 	}
 
 	private Expander CreateProjectRow(string providerId, ProjectIdentity project, string name,

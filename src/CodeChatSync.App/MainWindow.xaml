@@ -359,6 +359,13 @@
 							<InfoBar x:Name="ProjectInfoBar" IsOpen="False" IsClosable="True" />
 							<StackPanel x:Name="ProjectsPanel" Spacing="4" />
 
+							<StackPanel x:Name="AvailableProjectsSection" Spacing="8" Visibility="Collapsed" Margin="0,16,0,0">
+								<TextBlock Text="Available in the sync repository" Style="{StaticResource SectionTitleStyle}" />
+								<TextBlock Text="Registered from another PC but not on this one yet. Pick the local folder to add one here."
+										   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+								<StackPanel x:Name="AvailableProjectsPanel" Spacing="4" />
+							</StackPanel>
+
 							<Expander x:Name="AddProjectExpander" IsExpanded="False"
 									  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
 								<Expander.Header>

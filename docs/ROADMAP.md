@@ -109,6 +109,10 @@ without a recorded repository still need validation.
 - [x] Toggle: automatic sync on VS close (per PC, enabled by default)
 - [x] Opt-outs: sync Visual Studio / Claude Code while running (per PC, off by
       default, with warning and confirmation; a skipped tool no longer holds back automatic sync)
+- [x] Projects page lists projects already registered on another PC
+      (`AvailableProjects.FindUnregistered`) that this PC hasn't added yet, so
+      the user can register one by picking its local folder instead of
+      retyping its remote
 - [ ] Conflicts section: "keep local / keep remote" choice
 - [ ] Sync log
 
