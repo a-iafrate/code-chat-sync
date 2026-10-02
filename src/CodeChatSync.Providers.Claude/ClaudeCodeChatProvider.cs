@@ -49,7 +49,7 @@ namespace CodeChatSync.Providers.Claude;
 /// </para>
 /// </remarks>
 public sealed class ClaudeCodeChatProvider
-    : IChatSessionProvider, IChatRestoreValidator, IChatContentMapper, IArchivedChatCatalog
+    : IChatSessionProvider, IChatRestoreValidator, IChatContentMapper, IArchivedChatCatalog, IArchivedChatReader
 {
     private readonly IProcessGuard _processGuard;
     private readonly ClaudeProjectsDirectory _directory;
@@ -76,6 +76,26 @@ public sealed class ClaudeCodeChatProvider
         .. ClaudeArchivedChatDiscovery.Discover(projectSyncFolder)
             .Select(chat => new ArchivedChat(Id, chat.Id, chat.Title, chat.CreatedAt, chat.UpdatedAt, chat.Length, 1))
     ];
+
+    /// <summary>
+    /// Reads an archived transcript's conversation, wherever under the project folder its
+    /// session was started. Reads the archive only, so it needs no check that Claude Code is
+    /// closed.
+    /// </summary>
+    public ArchivedChatContent? ReadArchivedChat(string projectSyncFolder, string chatId, string? projectRoot = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+
+        if (ClaudeArchivedChatDiscovery.FindTranscript(projectSyncFolder, chatId) is not { } transcript)
+        {
+            return null;
+        }
+
+        var builder = new ArchivedChatContentBuilder();
+        ClaudeTranscriptMessages.ReadInto(transcript.FullName, projectRoot, builder);
+        return builder.Build();
+    }
 
     /// <exception cref="ClaudeCodeRunningException">Claude Code is running.</exception>
     public IEnumerable<ChatLocation> Discover(ProjectInfo project)

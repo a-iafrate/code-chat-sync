@@ -193,8 +193,12 @@ a transcript rewritten this way.
 - [ ] List sessions that exist only as a Chat window record (no
       `workspace.yaml`), which need the record's header and first message
       decoded; the restore selection list has the same gap
-- [ ] Chat content viewer (best-effort: the `.vs` format is undocumented,
-      depends on what Phase 0 — `discover` — reveals)
+- [x] Chat content viewer (read-only, best-effort): selecting a chat shows its
+      conversation, text only — tool calls and output are left out. `IArchivedChatReader`
+      per provider, `ChatLibrary.Read` in the Core, limits in
+      `ArchivedChatContentBuilder` (1,000 messages, 20,000 characters each, and the
+      page says what was left out). A 48 MB chat reads in under 200 ms. Ids from the
+      UI are never trusted as paths
 - [ ] Editor for the chat title (the name shown in Visual Studio's Chat
       History panel), if the format exposes it
 - [ ] Deleting a synced chat

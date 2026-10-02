@@ -667,7 +667,41 @@ file timestamps: after a `git pull` every file carries the moment of the
 checkout. The file time is only the last resort for a transcript with no
 timestamps at all.
 
-Still to build, in this order: the content viewer, the title editor, deletion.
+### Implemented: the viewer
+
+Selecting a chat opens its conversation in place of the list, read-only, with a way
+back. Each provider reads its own transcript through the optional
+`IArchivedChatReader` capability and returns the messages in order, as text:
+
+- **Visual Studio**: the `user.message` and `assistant.message` events of the
+  session's `events.jsonl`. Tool events are most of the file — a 46 MB transcript
+  held 642 user messages and 8,308 assistant events, only 2,778 of which had any
+  text — so only those two types are read, a cheap substring test comes before any
+  parsing, and the type is confirmed afterwards because the same words appear
+  inside tool output. The `<ide_context>` block is removed from a user message;
+  unlike in a title, a block that never closes is left alone, because a full
+  transcript is never cut off and the text is then the user's own.
+- **Claude Code**: the text blocks of `user` and `assistant` records. Tool calls,
+  their results and thinking are left out, as are meta lines, subagent chatter and
+  text Claude Code injects around a user turn (the same rule the title fallback
+  uses). An archived transcript stores the project root as a portable token; it is
+  shown as this PC's folder for the project, or as `<project>` when that is
+  unknown, instead of leaving the token in the middle of a path.
+
+Limits live in the Core (`ArchivedChatContentBuilder`) so both readers behave alike:
+at most 1,000 messages, each cut at 20,000 characters and marked as cut, never in the
+middle of a surrogate pair. What was left out is counted and the page says so. The
+window draws 200 messages at a time and keeps none of them alive once the user goes
+back. A real 48 MB chat reads in under 200 ms into 479 messages (84 from the user,
+matching its 84 turns).
+
+A chat id comes from the interface, so it is never trusted as a path: the Visual Studio
+reader resolves it under the project's own folder and refuses anything that leaves it,
+and the Claude reader only ever searches for a well-formed session id. Both are
+reached through `ChatLibrary.Read`, which resolves the project folder exactly as the
+list does.
+
+Still to build, in this order: the title editor, deletion.
 
 Functionality, as originally planned:
 

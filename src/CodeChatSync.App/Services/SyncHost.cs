@@ -107,6 +107,24 @@ public sealed class SyncHost : IAsyncDisposable
             return ChatLibrary.List(config, SharedConfig.Load(syncRoot), syncRoot, [_visualStudioProvider, _claudeProvider]);
         }, _cancellation.Token);
 
+    /// <summary>
+    /// One archived conversation, for the Chats page to show, or <see langword="null"/> when
+    /// it is not in the archive. Reads the archive only, like <see cref="ListArchivedChatsAsync"/>.
+    /// </summary>
+    public Task<ArchivedChatContent?> ReadArchivedChatAsync(string providerId, ProjectIdentity project, string chatId) =>
+        Task.Run<ArchivedChatContent?>(() =>
+        {
+            var config = LocalConfig.Load();
+            if (config.SyncRootPath is not { Length: > 0 } syncRoot || !Directory.Exists(syncRoot))
+            {
+                return null;
+            }
+
+            return ChatLibrary.Read(
+                config, SharedConfig.Load(syncRoot), syncRoot, [_visualStudioProvider, _claudeProvider],
+                providerId, project, chatId);
+        }, _cancellation.Token);
+
     public Task<SyncOutcome> SyncProjectAsync(ProjectIdentity identity) =>
         _coordinator.RunOrWaitAsync(
             new SyncRunOptions { ExactProjectRemote = identity.NormalizedRemote }, cancellationToken: _cancellation.Token);

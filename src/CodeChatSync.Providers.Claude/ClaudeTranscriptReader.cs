@@ -145,6 +145,13 @@ internal static class ClaudeTranscriptReader
         }
     }
 
+    /// <summary>
+    /// Whether text, already trimmed at the start, is something Claude Code put there
+    /// rather than something the user typed.
+    /// </summary>
+    internal static bool IsInjectedText(string trimmedText) =>
+        InjectedPrefixes.Any(prefix => trimmedText.StartsWith(prefix, StringComparison.Ordinal));
+
     private static string? AsPrompt(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -153,7 +160,7 @@ internal static class ClaudeTranscriptReader
         }
 
         var trimmed = text.TrimStart();
-        if (InjectedPrefixes.Any(prefix => trimmed.StartsWith(prefix, StringComparison.Ordinal)))
+        if (IsInjectedText(trimmed))
         {
             return null;
         }

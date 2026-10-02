@@ -12,7 +12,8 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// this project.
 /// </remarks>
 public sealed class VisualStudioChatProvider
-    : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator, IDerivedChatContent, IArchivedChatCatalog
+    : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator, IDerivedChatContent,
+        IArchivedChatCatalog, IArchivedChatReader
 {
     /// <summary>
     /// Runtime state that is specific to one PC or to a live session, and therefore
@@ -179,6 +180,32 @@ public sealed class VisualStudioChatProvider
                     session.Files.Sum(file => file.Length),
                     session.Files.Count))
         ];
+    }
+
+    /// <summary>
+    /// Reads an archived session's conversation from its <c>events.jsonl</c>.
+    /// </summary>
+    /// <remarks>
+    /// A session that exists only as a Chat window record has no transcript to read and
+    /// returns <see langword="null"/>. Nothing in a transcript is a path this tool maps, so
+    /// <paramref name="projectRoot"/> is not needed.
+    /// </remarks>
+    public ArchivedChatContent? ReadArchivedChat(string projectSyncFolder, string chatId, string? projectRoot = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+
+        // Resolved under the project's folder, so a hostile id cannot reach outside it.
+        var transcript = RelativePathGuard.ResolveUnder(
+            projectSyncFolder, $"{chatId}/{CopilotChatDiscovery.GetTranscriptRelativePath()}");
+        if (!File.Exists(transcript))
+        {
+            return null;
+        }
+
+        var builder = new ArchivedChatContentBuilder();
+        CopilotTranscriptMessages.ReadInto(transcript, builder);
+        return builder.Build();
     }
 
     public string MapToLocal(ProjectInfo project, string relativePath)

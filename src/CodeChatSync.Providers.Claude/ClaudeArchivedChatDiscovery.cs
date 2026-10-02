@@ -18,6 +18,32 @@ public static class ClaudeArchivedChatDiscovery
         MatchCasing = MatchCasing.PlatformDefault
     };
 
+    /// <summary>
+    /// Finds the archived transcript of one session, wherever under the project folder its
+    /// session was started, or <see langword="null"/> when there is none.
+    /// </summary>
+    public static FileInfo? FindTranscript(string projectSyncFolder, string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);
+
+        // Only a well-formed session id is ever turned into a file name to search for.
+        if (!Guid.TryParseExact(sessionId, "D", out _) || !Directory.Exists(projectSyncFolder))
+        {
+            return null;
+        }
+
+        var folder = new DirectoryInfo(Path.GetFullPath(projectSyncFolder));
+        if ((folder.Attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException("The Claude archive folder must not be a link.");
+        }
+
+        return Directory
+            .EnumerateFiles(folder.FullName, sessionId + ClaudeProjectsDirectory.TranscriptExtension, Recursive)
+            .Select(path => new FileInfo(path))
+            .FirstOrDefault();
+    }
+
     public static IReadOnlyList<ClaudeArchivedChat> Discover(string projectSyncFolder)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);

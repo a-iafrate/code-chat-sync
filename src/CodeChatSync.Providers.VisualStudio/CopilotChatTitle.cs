@@ -21,6 +21,27 @@ internal static class CopilotChatTitle
     /// <summary>Longest title kept; the list shows one line.</summary>
     public const int MaximumLength = 120;
 
+    /// <summary>
+    /// The message with the <c>&lt;ide_context&gt;</c> block removed, for showing a whole
+    /// message rather than a one-line title.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="Clean"/>, a block that is not closed leaves the text exactly as it
+    /// is: a full transcript is never cut off, so an unclosed block there is the user's own
+    /// text, and removing it would throw their words away.
+    /// </remarks>
+    public static string StripIdeContext(string text)
+    {
+        var trimmed = text.TrimStart();
+        if (!trimmed.StartsWith(IdeContextOpen, StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        var end = trimmed.IndexOf(IdeContextClose, StringComparison.Ordinal);
+        return end < 0 ? text : trimmed[(end + IdeContextClose.Length)..];
+    }
+
     public static string? Clean(string? raw, int maximumLength = MaximumLength)
     {
         if (string.IsNullOrWhiteSpace(raw))
