@@ -197,6 +197,8 @@ public sealed partial class MainWindow
 
         actions.Children.Add(CreateRowActionButton("", "Rename chat", () => RenameChatAsync(project, chat)));
 
+        actions.Children.Add(CreateRowActionButton("", "Delete chat from the archive", () => DeleteChatAsync(project, chat)));
+
         var row = new Grid { ColumnSpacing = 4 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -279,6 +281,51 @@ public sealed partial class MainWindow
             or InvalidDataException or InvalidOperationException or ArgumentException)
         {
             ChatsInfoBar.Title = "Could not rename the chat";
+            ChatsInfoBar.Message = exception.Message;
+            ChatsInfoBar.Severity = InfoBarSeverity.Error;
+            ChatsInfoBar.IsOpen = true;
+        }
+    }
+
+    // ---- deleting one chat -----------------------------------------------------------
+
+    private async Task DeleteChatAsync(ChatLibraryProject project, ArchivedChat chat)
+    {
+        var name = string.IsNullOrWhiteSpace(chat.Title) ? "this chat" : $"\"{chat.Title}\"";
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            RequestedTheme = WindowRoot.ActualTheme,
+            Title = "Delete chat from the archive?",
+            Content = $"{name} will be removed from the private sync repository. Copies on PCs that already have it "
+                + "are not deleted, and neither is the chat in the tool on this PC. The removal stays in the "
+                + "repository's Git history.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await _syncHost.DeleteArchivedChatAsync(project.ProviderId, project.Project, chat.Id);
+            if (result.Succeeded)
+            {
+                await RefreshChatLibraryAsync();
+            }
+
+            ChatsInfoBar.Title = result.Succeeded ? "Chat deleted" : "Could not delete the chat";
+            ChatsInfoBar.Message = result.Message;
+            ChatsInfoBar.Severity = result.Succeeded ? InfoBarSeverity.Success : InfoBarSeverity.Error;
+            ChatsInfoBar.IsOpen = true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidDataException or InvalidOperationException or ArgumentException)
+        {
+            ChatsInfoBar.Title = "Could not delete the chat";
             ChatsInfoBar.Message = exception.Message;
             ChatsInfoBar.Severity = InfoBarSeverity.Error;
             ChatsInfoBar.IsOpen = true;

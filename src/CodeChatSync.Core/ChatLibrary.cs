@@ -98,12 +98,30 @@ public interface IArchivedChatRenamer : IChatProvider
     bool RenameArchivedChat(string projectSyncFolder, string chatId, string title);
 }
 
-/// <summary>Outcome of <see cref="ChatLibrary.Rename"/>.</summary>
-public sealed record ChatRenameResult(bool Succeeded, string Message)
+/// <summary>
+/// Optional provider capability: remove an archived chat from the archive.
+/// </summary>
+/// <remarks>
+/// Removes files in the sync folder only, never the tool's live storage and never another
+/// PC's copy: a PC that already has the chat keeps it, because the sync does not propagate
+/// removals. Git history keeps the removed files recoverable.
+/// </remarks>
+public interface IArchivedChatRemover : IChatProvider
 {
-    public static ChatRenameResult Done(string message) => new(true, message);
+    /// <summary>
+    /// Removes every archived file of chat <paramref name="chatId"/> from
+    /// <paramref name="projectSyncFolder"/>. Returns <see langword="false"/> when the chat is
+    /// not in the archive.
+    /// </summary>
+    bool DeleteArchivedChat(string projectSyncFolder, string chatId);
+}
 
-    public static ChatRenameResult Failed(string message) => new(false, message);
+/// <summary>Outcome of <see cref="ChatLibrary.Rename"/> and <see cref="ChatLibrary.Delete"/>.</summary>
+public sealed record ChatEditResult(bool Succeeded, string Message)
+{
+    public static ChatEditResult Done(string message) => new(true, message);
+
+    public static ChatEditResult Failed(string message) => new(false, message);
 }
 
 /// <summary>
@@ -272,7 +290,7 @@ public static class ChatLibrary
     /// project folder is resolved exactly as <see cref="Read"/> does, so only a chat inside
     /// its own project's folder can be touched.
     /// </remarks>
-    public static ChatRenameResult Rename(
+    public static ChatEditResult Rename(
         SharedConfig shared,
         string syncRoot,
         IEnumerable<IChatProvider> providers,
@@ -292,7 +310,7 @@ public static class ChatLibrary
         var title = ChatTitle.Normalize(newTitle);
         if (title is null)
         {
-            return ChatRenameResult.Failed("Type a title for the chat.");
+            return ChatEditResult.Failed("Type a title for the chat.");
         }
 
         var renamer = providers
@@ -301,30 +319,83 @@ public static class ChatLibrary
         var name = shared.Find(project)?.Name ?? project.Slug;
         if (renamer is null)
         {
-            return ChatRenameResult.Failed("This kind of chat cannot be renamed.");
+            return ChatEditResult.Failed("This kind of chat cannot be renamed.");
         }
 
         if (!IsSafeFolderName(name))
         {
-            return ChatRenameResult.Failed("The project folder name is not usable.");
+            return ChatEditResult.Failed("The project folder name is not usable.");
         }
 
         var prepared = publisher?.PrepareForSync();
         if (prepared is { CanContinue: false })
         {
-            return ChatRenameResult.Failed(prepared.Message ?? "The sync folder could not be brought up to date.");
+            return ChatEditResult.Failed(prepared.Message ?? "The sync folder could not be brought up to date.");
         }
 
         var folder = Path.Combine(Path.GetFullPath(syncRoot), renamer.Id, name);
         if (!renamer.RenameArchivedChat(folder, chatId, title))
         {
-            return ChatRenameResult.Failed("The chat is no longer in the archive.");
+            return ChatEditResult.Failed("The chat is no longer in the archive.");
         }
 
         var published = publisher?.PublishChanges(1);
         return published is { CanContinue: false }
-            ? ChatRenameResult.Failed($"Renamed locally, but not published: {published.Message}")
-            : ChatRenameResult.Done("Renamed.");
+            ? ChatEditResult.Failed($"Renamed locally, but not published: {published.Message}")
+            : ChatEditResult.Done("Renamed.");
+    }
+
+    /// <summary>
+    /// Removes one chat from the archive and publishes the removal, so it leaves the sync
+    /// repository's current state. Same flow and same folder resolution as
+    /// <see cref="Rename"/>.
+    /// </summary>
+    public static ChatEditResult Delete(
+        SharedConfig shared,
+        string syncRoot,
+        IEnumerable<IChatProvider> providers,
+        ISyncPublisher? publisher,
+        string providerId,
+        ProjectIdentity project,
+        string chatId)
+    {
+        ArgumentNullException.ThrowIfNull(shared);
+        ArgumentException.ThrowIfNullOrWhiteSpace(syncRoot);
+        ArgumentNullException.ThrowIfNull(providers);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+
+        var remover = providers
+            .OfType<IArchivedChatRemover>()
+            .FirstOrDefault(candidate => string.Equals(candidate.Id, providerId, StringComparison.OrdinalIgnoreCase));
+        var name = shared.Find(project)?.Name ?? project.Slug;
+        if (remover is null)
+        {
+            return ChatEditResult.Failed("This kind of chat cannot be deleted.");
+        }
+
+        if (!IsSafeFolderName(name))
+        {
+            return ChatEditResult.Failed("The project folder name is not usable.");
+        }
+
+        var prepared = publisher?.PrepareForSync();
+        if (prepared is { CanContinue: false })
+        {
+            return ChatEditResult.Failed(prepared.Message ?? "The sync folder could not be brought up to date.");
+        }
+
+        var folder = Path.Combine(Path.GetFullPath(syncRoot), remover.Id, name);
+        if (!remover.DeleteArchivedChat(folder, chatId))
+        {
+            return ChatEditResult.Failed("The chat is no longer in the archive.");
+        }
+
+        var published = publisher?.PublishChanges(1);
+        return published is { CanContinue: false }
+            ? ChatEditResult.Failed($"Deleted locally, but not published: {published.Message}")
+            : ChatEditResult.Done("Deleted from the archive.");
     }
 
     private static bool IsSafeFolderName(string name) =>

@@ -13,7 +13,8 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// </remarks>
 public sealed class VisualStudioChatProvider
     : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator, IDerivedChatContent,
-        IArchivedChatCatalog, IArchivedChatReader, IArchivedChatRenamer
+        IArchivedChatCatalog, IArchivedChatReader, IArchivedChatRenamer,
+        IArchivedChatRemover
 {
     /// <summary>
     /// Runtime state that is specific to one PC or to a live session, and therefore
@@ -203,6 +204,40 @@ public sealed class VisualStudioChatProvider
         var sessionDirectory = RelativePathGuard.ResolveUnder(projectSyncFolder, chatId);
         return Directory.Exists(sessionDirectory)
             && CopilotDescriptorRenamer.Rename(sessionDirectory, title, _titleBackupDirectory);
+    }
+
+    /// <summary>
+    /// Removes an archived session: its whole folder, which holds the descriptor, the
+    /// transcript, the checkpoints and the Chat window records.
+    /// </summary>
+    public bool DeleteArchivedChat(string projectSyncFolder, string chatId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+
+        // A session is exactly one folder directly under the project's folder. Anything else
+        // — a nested path, "." or ".." — could name the project folder or beyond, and
+        // deleting that would take other chats with it.
+        if (chatId is "." or ".."
+            || chatId.IndexOfAny(['/', '\\']) >= 0
+            || chatId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return false;
+        }
+
+        var sessionDirectory = new DirectoryInfo(RelativePathGuard.ResolveUnder(projectSyncFolder, chatId));
+        if (!sessionDirectory.Exists)
+        {
+            return false;
+        }
+
+        if ((sessionDirectory.Attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException("An archived chat folder must not be a link.");
+        }
+
+        sessionDirectory.Delete(recursive: true);
+        return true;
     }
 
     /// <summary>

@@ -129,16 +129,16 @@ public sealed class SyncHost : IAsyncDisposable
     /// Renames one archived chat and publishes the change. Runs behind the sync gate, so it
     /// never edits the sync folder while a sync is copying into it.
     /// </summary>
-    public async Task<ChatRenameResult> RenameArchivedChatAsync(
+    public async Task<ChatEditResult> RenameArchivedChatAsync(
         string providerId, ProjectIdentity project, string chatId, string? title)
     {
-        ChatRenameResult? result = null;
+        ChatEditResult? result = null;
         var ran = await _coordinator.TryUpdateConfigurationAsync(() =>
         {
             var config = LocalConfig.Load();
             if (config.SyncRootPath is not { Length: > 0 } syncRoot || !Directory.Exists(syncRoot))
             {
-                result = ChatRenameResult.Failed("No sync folder is configured on this PC.");
+                result = ChatEditResult.Failed("No sync folder is configured on this PC.");
                 return;
             }
 
@@ -148,8 +148,35 @@ public sealed class SyncHost : IAsyncDisposable
         }, _cancellation.Token).ConfigureAwait(false);
 
         return ran
-            ? result ?? ChatRenameResult.Failed("The chat could not be renamed.")
-            : ChatRenameResult.Failed("A sync is running. Try again once it finishes.");
+            ? result ?? ChatEditResult.Failed("The chat could not be renamed.")
+            : ChatEditResult.Failed("A sync is running. Try again once it finishes.");
+    }
+
+    /// <summary>
+    /// Deletes one chat from the archive and publishes the removal. Behind the sync gate, like
+    /// <see cref="RenameArchivedChatAsync"/>. PCs that already hold the chat keep their copy.
+    /// </summary>
+    public async Task<ChatEditResult> DeleteArchivedChatAsync(
+        string providerId, ProjectIdentity project, string chatId)
+    {
+        ChatEditResult? result = null;
+        var ran = await _coordinator.TryUpdateConfigurationAsync(() =>
+        {
+            var config = LocalConfig.Load();
+            if (config.SyncRootPath is not { Length: > 0 } syncRoot || !Directory.Exists(syncRoot))
+            {
+                result = ChatEditResult.Failed("No sync folder is configured on this PC.");
+                return;
+            }
+
+            result = ChatLibrary.Delete(
+                SharedConfig.Load(syncRoot), syncRoot, [_visualStudioProvider, _claudeProvider],
+                GitSyncPublisher.TryCreate(syncRoot, out _), providerId, project, chatId);
+        }, _cancellation.Token).ConfigureAwait(false);
+
+        return ran
+            ? result ?? ChatEditResult.Failed("The chat could not be deleted.")
+            : ChatEditResult.Failed("A sync is running. Try again once it finishes.");
     }
 
     public Task<SyncOutcome> SyncProjectAsync(ProjectIdentity identity) =>

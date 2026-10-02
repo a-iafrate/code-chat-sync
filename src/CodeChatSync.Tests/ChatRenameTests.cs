@@ -216,6 +216,92 @@ public sealed class ChatRenameTests : IDisposable
         Assert.False(result.Succeeded);
     }
 
+    // ---- deleting ---------------------------------------------------------------------------
+
+    [Fact]
+    public void VisualStudio_DeleteRemovesTheWholeSessionFolderAndNothingElse()
+    {
+        WriteDescriptor("id: " + SessionA);
+        File.WriteAllText(Path.Combine(_archive, SessionA, "events.jsonl"), "{}");
+        var other = Directory.CreateDirectory(Path.Combine(_archive, "other-session")).FullName;
+        File.WriteAllText(Path.Combine(other, "workspace.yaml"), "id: other-session");
+
+        Assert.True(VisualStudio().DeleteArchivedChat(_archive, SessionA));
+
+        Assert.False(Directory.Exists(Path.Combine(_archive, SessionA)));
+        Assert.True(File.Exists(Path.Combine(other, "workspace.yaml")));
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("a/b")]
+    [InlineData("a\\b")]
+    public void VisualStudio_DeleteRefusesAnythingButOneFolderName(string chatId)
+    {
+        WriteDescriptor("id: " + SessionA);
+
+        Assert.False(VisualStudio().DeleteArchivedChat(_archive, chatId));
+
+        Assert.True(File.Exists(DescriptorPath));
+    }
+
+    [Fact]
+    public void VisualStudio_DeleteReportsAChatThatIsNotThere() =>
+        Assert.False(VisualStudio().DeleteArchivedChat(_archive, SessionA));
+
+    [Fact]
+    public void Claude_DeleteRemovesOnlyThatTranscript()
+    {
+        var path = WriteTranscript("src", """{"type":"user"}""");
+        var other = Path.Combine(_archive, "src", "22222222-2222-4222-8222-222222222222.jsonl");
+        File.WriteAllText(other, """{"type":"user"}""");
+
+        Assert.True(Claude().DeleteArchivedChat(_archive, SessionA));
+
+        Assert.False(File.Exists(path));
+        Assert.True(File.Exists(other));
+    }
+
+    [Fact]
+    public void Claude_DeleteReportsAChatThatIsNotThere() =>
+        Assert.False(Claude().DeleteArchivedChat(_archive, SessionA));
+
+    [Fact]
+    public void Delete_PullsRemovesThenPublishes()
+    {
+        var syncRoot = _root.Combine("sync");
+        var project = ProjectIdentity.FromRemote("https://github.com/acme/widgets.git");
+        var projectFolder = Directory.CreateDirectory(Path.Combine(syncRoot, "claudecode", project.Slug)).FullName;
+        var transcript = Path.Combine(projectFolder, $"{SessionA}.jsonl");
+        File.WriteAllText(transcript, """{"type":"user"}""" + "\n");
+        var publisher = new RecordingPublisher();
+
+        var result = ChatLibrary.Delete(
+            new SharedConfig(), syncRoot, [Claude()], publisher, "claudecode", project, SessionA);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(["prepare", "publish"], publisher.Calls);
+        Assert.False(File.Exists(transcript));
+    }
+
+    [Fact]
+    public void Delete_KeepsTheChatWhenThePullFails()
+    {
+        var syncRoot = _root.Combine("sync");
+        var project = ProjectIdentity.FromRemote("https://github.com/acme/widgets.git");
+        var projectFolder = Directory.CreateDirectory(Path.Combine(syncRoot, "claudecode", project.Slug)).FullName;
+        var transcript = Path.Combine(projectFolder, $"{SessionA}.jsonl");
+        File.WriteAllText(transcript, """{"type":"user"}""" + "\n");
+        var publisher = new RecordingPublisher { PrepareResult = SyncPublishResult.Stop("offline") };
+
+        var result = ChatLibrary.Delete(
+            new SharedConfig(), syncRoot, [Claude()], publisher, "claudecode", project, SessionA);
+
+        Assert.False(result.Succeeded);
+        Assert.True(File.Exists(transcript));
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
 
     private string DescriptorPath => Path.Combine(_archive, SessionA, "workspace.yaml");

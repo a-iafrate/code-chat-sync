@@ -50,7 +50,7 @@ namespace CodeChatSync.Providers.Claude;
 /// </remarks>
 public sealed class ClaudeCodeChatProvider
     : IChatSessionProvider, IChatRestoreValidator, IChatContentMapper, IArchivedChatCatalog, IArchivedChatReader,
-        IArchivedChatRenamer
+        IArchivedChatRenamer, IArchivedChatRemover
 {
     private readonly IProcessGuard _processGuard;
     private readonly ClaudeProjectsDirectory _directory;
@@ -114,6 +114,24 @@ public sealed class ClaudeCodeChatProvider
         stream.Seek(0, SeekOrigin.End);
         var bytes = System.Text.Encoding.UTF8.GetBytes((endsWithNewline ? "" : "\n") + record + "\n");
         stream.Write(bytes);
+        return true;
+    }
+
+    /// <summary>
+    /// Removes an archived transcript, wherever under the project folder its session was
+    /// started. Only a well-formed session id is ever turned into a file name.
+    /// </summary>
+    public bool DeleteArchivedChat(string projectSyncFolder, string chatId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+
+        if (ClaudeArchivedChatDiscovery.FindTranscript(projectSyncFolder, chatId) is not { } transcript)
+        {
+            return false;
+        }
+
+        transcript.Delete();
         return true;
     }
 

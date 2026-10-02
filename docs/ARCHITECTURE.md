@@ -718,7 +718,13 @@ verified on real data: Visual Studio rewrites `workspace.yaml` (`name`,
 it is rewritten. Typed titles go through `ChatTitle.Normalize` (one line, no control
 characters, capped).
 
-Still to build: deletion.
+Deleting (`IArchivedChatRemover`, `ChatLibrary.Delete`) follows the same flow and removes
+the chat from the archive only: a Visual Studio session's whole folder, or a Claude
+transcript. The Visual Studio provider accepts only a single folder name as the id, so
+`.`, `..` or a nested path can never select the project folder. A removal is not
+propagated: a PC that already holds the chat keeps it, and its next sync reports the
+file as removed in the sync folder instead of pushing it back. Git history is the way
+to recover a deleted chat.
 
 Functionality, as originally planned:
 

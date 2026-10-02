@@ -206,9 +206,15 @@ a transcript rewritten this way.
       `summary` on the next sync. Claude Code: appends a `custom-title` record
       (the latest wins). Not yet verified: what Visual Studio's chat list shows for
       a renamed chat whose window record keeps the old header name
-- [ ] Deleting a synced chat
-- [ ] Same write rule as everything else: never while `devenv.exe` is
-      running, backup before overwrite
+- [x] Deleting a synced chat (trash icon, with a confirmation): removes the chat from
+      the archive only — VS its whole session folder, Claude its transcript — then
+      pulls first and publishes, behind the sync gate (`IArchivedChatRemover`,
+      `ChatLibrary.Delete`). Other PCs keep their copy, because the sync does not
+      propagate removals; Git history keeps the removed files recoverable. Propagating
+      a deletion to the other PCs would need tombstones and is not built
+- [x] Same write rule as everything else: both edits touch the archive, never a
+      tool's live storage, so they need no `devenv.exe` check; the one file
+      rewritten (the VS descriptor) is backed up first
 
 ## Phase 4ter — Prompt Library
 
