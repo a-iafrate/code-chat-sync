@@ -182,8 +182,17 @@ a transcript rewritten this way.
 
 ## Phase 4bis — Chat Library (priority over Prompt Library)
 
-- [ ] List of synced chats per project, read from
-      `.codechatsync/visualstudio/<project>/...`
+- [x] List of synced chats per project (**Chats** page, read-only): reads the
+      archive in the sync folder for every registered project and provider,
+      newest first, with search over titles and IDs. `IArchivedChatCatalog`
+      per provider, `ChatLibrary` in the Core. Times come from the archived
+      content, not file timestamps (a pull re-stamps every file). Claude
+      archives are now walked at any depth — the old listing hid every chat
+      started in a subfolder — and untitled Claude chats get the first thing
+      the user typed as a name
+- [ ] List sessions that exist only as a Chat window record (no
+      `workspace.yaml`), which need the record's header and first message
+      decoded; the restore selection list has the same gap
 - [ ] Chat content viewer (best-effort: the `.vs` format is undocumented,
       depends on what Phase 0 — `discover` — reveals)
 - [ ] Editor for the chat title (the name shown in Visual Studio's Chat

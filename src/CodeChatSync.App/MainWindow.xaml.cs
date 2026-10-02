@@ -63,7 +63,13 @@ public sealed partial class MainWindow : Window
 		var page = (args.SelectedItem as NavigationViewItem)?.Tag as string;
 		SyncPage.Visibility = page == "sync" ? Visibility.Visible : Visibility.Collapsed;
 		ProjectsPage.Visibility = page == "projects" ? Visibility.Visible : Visibility.Collapsed;
+		ChatsPage.Visibility = page == "chats" ? Visibility.Visible : Visibility.Collapsed;
 		SettingsPage.Visibility = page == "settings" ? Visibility.Visible : Visibility.Collapsed;
+
+		if (page == "chats")
+		{
+			EnsureChatLibraryLoaded();
+		}
 	}
 
 	private async Task<bool> LoadSettingsAsync()
@@ -840,7 +846,7 @@ public sealed partial class MainWindow : Window
 							.Select(session => (Id: Path.GetFileName(session.SessionDirectory), session.Name, session.UpdatedAt))
 							.ToArray(),
 						ClaudeProviderId => ClaudeArchivedChatDiscovery.Discover(projectRoot)
-							.Select(session => (session.Id, session.Title, (DateTimeOffset?)new DateTimeOffset(session.UpdatedAt)))
+							.Select(session => (session.Id, session.Title, (DateTimeOffset?)session.UpdatedAt))
 							.ToArray(),
 						_ => throw new InvalidDataException($"Unsupported registered provider: {providerId}")
 					};

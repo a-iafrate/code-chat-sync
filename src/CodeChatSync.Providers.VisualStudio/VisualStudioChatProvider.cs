@@ -12,7 +12,7 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// this project.
 /// </remarks>
 public sealed class VisualStudioChatProvider
-    : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator, IDerivedChatContent
+    : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator, IDerivedChatContent, IArchivedChatCatalog
 {
     /// <summary>
     /// Runtime state that is specific to one PC or to a live session, and therefore
@@ -151,6 +151,34 @@ public sealed class VisualStudioChatProvider
         }
 
         return locations;
+    }
+
+    /// <summary>
+    /// Describes the sessions archived for a project, from each session's own descriptor.
+    /// </summary>
+    /// <remarks>
+    /// Sessions that exist only as a Chat window record, with no descriptor, are not listed
+    /// yet: the restore selection list has the same limit, and rendering them means decoding
+    /// the record's header and first message. Times come from the descriptor, which the
+    /// originating PC wrote, never from file timestamps — a <c>git pull</c> stamps every
+    /// file with the moment of the checkout.
+    /// </remarks>
+    public IReadOnlyList<ArchivedChat> ListArchivedChats(string projectSyncFolder)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);
+
+        return
+        [
+            .. CopilotChatDiscovery.DiscoverSessions(projectSyncFolder)
+                .Select(session => new ArchivedChat(
+                    Id,
+                    Path.GetFileName(session.SessionDirectory),
+                    CopilotChatTitle.Clean(session.Name),
+                    session.CreatedAt,
+                    session.UpdatedAt,
+                    session.Files.Sum(file => file.Length),
+                    session.Files.Count))
+        ];
     }
 
     public string MapToLocal(ProjectInfo project, string relativePath)

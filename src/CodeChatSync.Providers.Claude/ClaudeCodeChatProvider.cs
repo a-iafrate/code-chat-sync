@@ -48,7 +48,8 @@ namespace CodeChatSync.Providers.Claude;
 /// path and restores only where that already matches, exactly as before.
 /// </para>
 /// </remarks>
-public sealed class ClaudeCodeChatProvider : IChatSessionProvider, IChatRestoreValidator, IChatContentMapper
+public sealed class ClaudeCodeChatProvider
+    : IChatSessionProvider, IChatRestoreValidator, IChatContentMapper, IArchivedChatCatalog
 {
     private readonly IProcessGuard _processGuard;
     private readonly ClaudeProjectsDirectory _directory;
@@ -65,6 +66,16 @@ public sealed class ClaudeCodeChatProvider : IChatSessionProvider, IChatRestoreV
 
     /// <summary>Claude Code's projects directory on this PC.</summary>
     public string ProjectsRoot => _directory.Root;
+
+    /// <summary>
+    /// Describes the transcripts archived for a project. Reads the archive only, so it
+    /// needs no check that Claude Code is closed.
+    /// </summary>
+    public IReadOnlyList<ArchivedChat> ListArchivedChats(string projectSyncFolder) =>
+    [
+        .. ClaudeArchivedChatDiscovery.Discover(projectSyncFolder)
+            .Select(chat => new ArchivedChat(Id, chat.Id, chat.Title, chat.CreatedAt, chat.UpdatedAt, chat.Length, 1))
+    ];
 
     /// <exception cref="ClaudeCodeRunningException">Claude Code is running.</exception>
     public IEnumerable<ChatLocation> Discover(ProjectInfo project)

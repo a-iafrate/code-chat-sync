@@ -632,9 +632,46 @@ Like the Prompt Library, but for chats already synced by the tool — no
 `.codechatsync/<provider>/<project>/...` and at the local path mapped by
 the provider (`MapToLocal`).
 
-Functionality:
+### Implemented: the list
 
-- List of synced chats, per project
+The **Chats** page lists every chat held in the private sync repository, per
+registered project and provider, newest first, with a search box over titles and
+IDs. It is read-only, and it reads the *archive* in the sync folder — never a
+tool's live storage — so it is safe while Visual Studio or Claude Code is open,
+takes no part in the sync gate, and works for a project whose folder is missing
+on this PC (the chats archived for it are still there to look at).
+
+The Core owns the shape (`ChatLibrary`, `ArchivedChat`) and each provider
+describes its own archive through the optional `IArchivedChatCatalog`
+capability, in the same way as the other optional capabilities in the provider
+contract. What each one reads:
+
+- **Visual Studio**: each session's `workspace.yaml`. The title is the first
+  message with the `<ide_context>` block Visual Studio prepends removed; a name
+  cut off inside that block holds nothing the user wrote, so such a chat is
+  untitled rather than titled with the preamble. Sessions that exist only as a
+  Chat window record, with no descriptor, are not listed yet (the restore
+  selection list shares the limit).
+- **Claude Code**: the transcripts, walked at **any depth** — a transcript is
+  archived under the folder its session started in, so `src/<id>.jsonl` is the
+  usual case. The earlier listing only looked at the top level and silently
+  hid every such chat, in the restore selection list too. The title is the
+  generated `aiTitle` when there is one; otherwise the first thing the user
+  typed, skipping what Claude Code injects around it (reminders, IDE state,
+  local slash-command records, meta and subagent lines), because most sessions
+  never get an `aiTitle` and a list of nameless chats cannot be browsed.
+
+Times come from the archived content — the descriptor's `created_at` and
+`updated_at`, the earliest and latest `timestamp` in a transcript — never from
+file timestamps: after a `git pull` every file carries the moment of the
+checkout. The file time is only the last resort for a transcript with no
+timestamps at all.
+
+Still to build, in this order: the content viewer, the title editor, deletion.
+
+Functionality, as originally planned:
+
+- List of synced chats, per project (**done**, above)
 - Content view (**best-effort**: the format Visual Studio uses to store
   chats in `.vs` isn't documented — see Phase 0, `discover` — so how deep
   the parsing can go depends on what's found there)

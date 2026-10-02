@@ -90,6 +90,23 @@ public sealed class SyncHost : IAsyncDisposable
     public Task<SyncOutcome> SyncNowAsync() =>
         _coordinator.RunOrWaitAsync(cancellationToken: _cancellation.Token);
 
+    /// <summary>
+    /// Everything archived in the sync folder for the projects registered on this PC, for
+    /// the Chats page. Reads the archive only — never a tool's live storage — so it is safe
+    /// to run while Visual Studio or Claude Code is open, and takes no part in the sync gate.
+    /// </summary>
+    public Task<IReadOnlyList<ChatLibraryProject>> ListArchivedChatsAsync() =>
+        Task.Run<IReadOnlyList<ChatLibraryProject>>(() =>
+        {
+            var config = LocalConfig.Load();
+            if (config.SyncRootPath is not { Length: > 0 } syncRoot || !Directory.Exists(syncRoot))
+            {
+                return [];
+            }
+
+            return ChatLibrary.List(config, SharedConfig.Load(syncRoot), syncRoot, [_visualStudioProvider, _claudeProvider]);
+        }, _cancellation.Token);
+
     public Task<SyncOutcome> SyncProjectAsync(ProjectIdentity identity) =>
         _coordinator.RunOrWaitAsync(
             new SyncRunOptions { ExactProjectRemote = identity.NormalizedRemote }, cancellationToken: _cancellation.Token);
