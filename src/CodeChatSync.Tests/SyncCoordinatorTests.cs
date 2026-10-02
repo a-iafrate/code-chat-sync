@@ -88,6 +88,68 @@ public sealed class SyncCoordinatorTests : IDisposable
         Assert.Equal(SyncOutcomeStatus.Completed, (await first).Status);
     }
 
+    /// <summary>
+    /// The case "Sync now" needed: a request that only lost a brief race against another
+    /// run (most commonly the window's own dry-run conflict check) must still complete,
+    /// not come back busy with nothing the user can do about it.
+    /// </summary>
+    [Fact]
+    public async Task RunOrWaitAsync_RetriesOnceAfterABriefBusyGate()
+    {
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var coordinator = new SyncCoordinator(() =>
+        {
+            started.Set();
+            release.Wait(TimeSpan.FromSeconds(10));
+            return CreateOrchestrator();
+        });
+
+        var first = coordinator.RunAsync();
+        Assert.True(started.Wait(TimeSpan.FromSeconds(10)));
+
+        var waiting = coordinator.RunOrWaitAsync(retryWindow: TimeSpan.FromSeconds(10));
+        release.Set();
+        await first;
+
+        Assert.Equal(SyncOutcomeStatus.Completed, (await waiting).Status);
+    }
+
+    /// <summary>A sync still genuinely in progress after the retry window is reported as busy.</summary>
+    [Fact]
+    public async Task RunOrWaitAsync_ReportsBusyWhenTheGateStaysHeldPastTheRetryWindow()
+    {
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var coordinator = new SyncCoordinator(() =>
+        {
+            started.Set();
+            release.Wait(TimeSpan.FromSeconds(10));
+            return CreateOrchestrator();
+        });
+
+        var first = coordinator.RunAsync();
+        Assert.True(started.Wait(TimeSpan.FromSeconds(10)));
+
+        var outcome = await coordinator.RunOrWaitAsync(retryWindow: TimeSpan.FromMilliseconds(100));
+        release.Set();
+        await first;
+
+        Assert.Equal(SyncOutcomeStatus.AlreadyRunning, outcome.Status);
+    }
+
+    [Fact]
+    public async Task RunOrWaitAsync_BehavesLikeAnOrdinaryRunWhenTheGateIsFree()
+    {
+        var coordinator = new SyncCoordinator(CreateOrchestrator);
+        File.WriteAllText(Path.Combine(ChatRoot, "events.jsonl"), "{}");
+
+        var outcome = await coordinator.RunOrWaitAsync();
+
+        Assert.Equal(SyncOutcomeStatus.Completed, outcome.Status);
+        Assert.Same(outcome, coordinator.LastOutcome);
+    }
+
     [Fact]
     public async Task RunAsync_RaisesCompletedOncePerRun()
     {

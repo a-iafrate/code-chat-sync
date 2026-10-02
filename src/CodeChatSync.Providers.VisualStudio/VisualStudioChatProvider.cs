@@ -76,8 +76,15 @@ public sealed class VisualStudioChatProvider
     {
         ArgumentNullException.ThrowIfNull(project);
 
+        var locations = new List<ChatLocation>();
         var openSessionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var session in CopilotChatDiscovery.DiscoverSessions(_sessionStateRoot))
+
+        var sessions = SyncTrace.Time(
+            "VisualStudio.Discover: CopilotChatDiscovery.DiscoverSessions",
+            () => CopilotChatDiscovery.DiscoverSessions(_sessionStateRoot));
+        SyncTrace.Log($"VisualStudio.Discover: {sessions.Count} session(s) found under {_sessionStateRoot}");
+
+        foreach (var session in sessions)
         {
             if (!BelongsToProject(session, project))
             {
@@ -97,22 +104,29 @@ public sealed class VisualStudioChatProvider
                 }
 
                 var relativePath = $"{session.Id}/{file.RelativePath.Replace('\\', '/')}";
-                yield return new ChatLocation
+                locations.Add(new ChatLocation
                 {
                     RelativePath = relativePath,
                     LocalPath = Path.Combine(session.SessionDirectory, file.RelativePath),
                     Length = file.Length,
                     LastWriteTimeUtc = file.LastWriteTime,
                     IsInUse = session.IsInUse
-                };
+                });
             }
         }
+
+        SyncTrace.Log($"VisualStudio.Discover: {locations.Count} transcript file(s) after filtering to this project");
 
         // The Chat window's own record of each conversation, which is what makes a chat
         // appear in the list at all. Discovered independently of the transcripts: a chat
         // that never used the CLI agent has one of these and no session folder.
         var rebuilt = GetRebuiltRecords(project);
-        foreach (var entry in CopilotChatWindowStore.Discover(project.LocalPath))
+        var windowEntries = SyncTrace.Time(
+            "VisualStudio.Discover: CopilotChatWindowStore.Discover (.vs tree walk)",
+            () => CopilotChatWindowStore.Discover(project.LocalPath));
+        SyncTrace.Log($"VisualStudio.Discover: {windowEntries.Count} chat window record(s) found under {project.LocalPath}");
+
+        foreach (var entry in windowEntries)
         {
             var info = new FileInfo(entry.LocalPath);
 
@@ -123,7 +137,7 @@ public sealed class VisualStudioChatProvider
                 continue;
             }
 
-            yield return new ChatLocation
+            locations.Add(new ChatLocation
             {
                 RelativePath = CopilotChatWindowStore.BuildRelativePath(entry.SessionId, entry.SolutionRelativePath),
                 LocalPath = entry.LocalPath,
@@ -133,8 +147,10 @@ public sealed class VisualStudioChatProvider
                 // Visual Studio rewrites this record as the conversation goes on, so an
                 // open chat's entry is as unsafe to copy as its transcript.
                 IsInUse = openSessionIds.Contains(entry.SessionId)
-            };
+            });
         }
+
+        return locations;
     }
 
     public string MapToLocal(ProjectInfo project, string relativePath)
@@ -186,9 +202,14 @@ public sealed class VisualStudioChatProvider
         var sessions = CopilotChatDiscovery.DiscoverSessions(_sessionStateRoot)
             .Where(session => selected.Contains(session.Id) && BelongsToProject(session, project))
             .ToArray();
+        SyncTrace.Log($"VisualStudio.RegisterSessions: {sessions.Length} session(s) selected for registration");
 
-        var registration = _sessionStore.Register(sessions, dryRun);
-        var listing = EnsureListed(project, sessions, dryRun);
+        var registration = SyncTrace.Time(
+            "VisualStudio.RegisterSessions: CopilotSessionStore.Register (SQLite index)",
+            () => _sessionStore.Register(sessions, dryRun));
+        var listing = SyncTrace.Time(
+            "VisualStudio.RegisterSessions: EnsureListed (.vs chat window records)",
+            () => EnsureListed(project, sessions, dryRun));
 
         return new SessionRegistrationResult
         {
@@ -213,7 +234,9 @@ public sealed class VisualStudioChatProvider
         bool dryRun)
     {
         var rebuilt = GetRebuiltRecords(project);
-        var existing = CopilotChatWindowStore.Discover(project.LocalPath)
+        var existing = SyncTrace.Time(
+            "EnsureListed: CopilotChatWindowStore.Discover (existing records)",
+            () => CopilotChatWindowStore.Discover(project.LocalPath))
             .GroupBy(entry => entry.SessionId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First().LocalPath, StringComparer.OrdinalIgnoreCase);
 
@@ -222,13 +245,18 @@ public sealed class VisualStudioChatProvider
         var pending = sessions
             .Where(session => !session.IsInUse && NeedsRecord(session, existing, rebuilt))
             .ToArray();
+        SyncTrace.Log($"EnsureListed: {pending.Length} session(s) pending a chat window record");
         if (pending.Length == 0)
         {
             return (0, null);
         }
 
-        var directory = CopilotChatWindowStore.FindBusiestSessionsDirectory(project.LocalPath);
-        var template = CopilotChatWindowStore.TryFindTemplate(project.LocalPath);
+        var directory = SyncTrace.Time(
+            "EnsureListed: CopilotChatWindowStore.FindBusiestSessionsDirectory",
+            () => CopilotChatWindowStore.FindBusiestSessionsDirectory(project.LocalPath));
+        var template = SyncTrace.Time(
+            "EnsureListed: CopilotChatWindowStore.TryFindTemplate",
+            () => CopilotChatWindowStore.TryFindTemplate(project.LocalPath));
         if (directory is null || template is null)
         {
             return (0, "Visual Studio has not opened a Copilot chat in this project on this PC yet, so restored "
@@ -239,8 +267,11 @@ public sealed class VisualStudioChatProvider
         var changed = false;
         foreach (var session in pending)
         {
-            var turns = CopilotTranscriptTurns.Read(
-                Path.Combine(session.SessionDirectory, CopilotChatDiscovery.GetTranscriptRelativePath()));
+            var transcriptPath = Path.Combine(session.SessionDirectory, CopilotChatDiscovery.GetTranscriptRelativePath());
+            var transcriptSize = File.Exists(transcriptPath) ? new FileInfo(transcriptPath).Length : 0;
+            var turns = SyncTrace.Time(
+                $"EnsureListed: parse transcript {session.Id} ({transcriptSize / 1024.0:N0} KB)",
+                () => CopilotTranscriptTurns.Read(transcriptPath));
             if (turns.Count == 0)
             {
                 continue;
@@ -254,12 +285,14 @@ public sealed class VisualStudioChatProvider
 
             // The descriptor's own times come from the PC that held the conversation, so
             // the list shows each restored chat at its real age.
-            var record = CopilotChatWindowRecord.TryBuild(
-                template.Value,
-                session.Id,
-                turns,
-                session.CreatedAt,
-                session.UpdatedAt ?? session.CreatedAt);
+            var record = SyncTrace.Time(
+                $"EnsureListed: build record {session.Id} ({turns.Count} turn(s))",
+                () => CopilotChatWindowRecord.TryBuild(
+                    template.Value,
+                    session.Id,
+                    turns,
+                    session.CreatedAt,
+                    session.UpdatedAt ?? session.CreatedAt));
 
             if (record is null)
             {
@@ -270,9 +303,10 @@ public sealed class VisualStudioChatProvider
             {
                 // Refreshed in place when it already exists, so a chat does not move
                 // between solutions behind the user's back.
-                File.WriteAllBytes(
-                    existing.TryGetValue(session.Id, out var current) ? current : Path.Combine(directory, session.Id),
-                    record);
+                var target = existing.TryGetValue(session.Id, out var current) ? current : Path.Combine(directory, session.Id);
+                SyncTrace.Time(
+                    $"EnsureListed: write record {session.Id} ({record.Length / 1024.0:N0} KB) to {target}",
+                    () => File.WriteAllBytes(target, record));
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {

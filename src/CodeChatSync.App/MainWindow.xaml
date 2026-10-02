@@ -358,6 +358,11 @@
 										   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
 										   Text="No sync has run yet in this session." />
 							</Border>
+
+							<TextBlock Text="Sync log" Style="{StaticResource SectionTitleStyle}" Margin="0,16,0,0" />
+							<TextBlock Text="Recent runs in this session, most recent first. Expand one that needed attention to see which files were skipped and why."
+									   TextWrapping="Wrap" Style="{StaticResource CaptionStyle}" Margin="0,0,0,8" />
+							<StackPanel x:Name="SyncLogPanel" Spacing="4" />
 						</StackPanel>
 					</Grid>
 				</ScrollViewer>

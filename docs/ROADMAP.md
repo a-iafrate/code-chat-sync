@@ -33,9 +33,48 @@ sync/restore are available. The
 window registers projects by Git remote, lists their paths and last local
 sync run, removes local registrations without deleting archived chats, and can
 sync one project at a time. The automatic-sync preference is local to each PC;
-manual sync remains available when it is disabled. Conflict resolution and
-the recent-sync log remain open. Restored sessions on another PC and sessions
-without a recorded repository still need validation.
+manual sync remains available when it is disabled. Conflict resolution and the
+sync log (`SyncCoordinator.RecentRuns`, with per-run detail on the Sync page)
+are both done. Restored sessions on another PC and sessions without a recorded
+repository still need validation.
+
+A dry run (used by the Conflicts list and the Chat Library to refresh
+themselves after every sync) must never raise `SyncCoordinator.Completed`: a
+listener that inspects on completion would otherwise trigger its own dry run,
+whose completion would trigger another, holding the sync gate forever and
+making every request — manual or automatic — report "a sync is already
+running" with no way out. This was hit in practice once the Conflicts section
+started refreshing on completion; fixed by making dry runs structurally silent
+rather than special-casing that one caller.
+
+That fix stopped the gate from getting stuck forever, but left a narrower,
+ordinary race: the same dry run (also run once by `LoadSettingsAsync` right
+after the window opens) still holds the gate for its own brief moment, and
+*Sync now* clicked in that moment got dropped outright — correct per
+`RunAsync`'s contract, but indistinguishable from the sync having silently
+failed, right when a user testing the fix was most likely to click it.
+`SyncCoordinator.RunOrWaitAsync` is now what *Sync now* and a project's own
+sync button call: on a busy gate it waits up to 10 seconds (on the semaphore
+itself, not by polling) and retries once, while an automatic, watcher-triggered
+sync keeps using plain `RunAsync` and is still dropped outright — it can
+afford to be, since the next tool close picks up anything new regardless.
+
+Reported again right after that fix shipped: a manual sync "took a while to
+show the message" and "seemed to never finish." Added `CodeChatSync.Core.SyncTrace`
+(an opt-in, zero-overhead-when-disabled timing trace of the whole pipeline —
+every file, every `git` invocation, every `.vs` directory walk — enabled via
+`CODECHATSYNC_TRACE_LOG`) and used it to watch a live run end to end. The real
+sync completed normally in single-digit seconds, pull through push, confirmed
+by the new commit landing on the remote; the "already running" message the user
+saw came from a *different* dry run — the Conflicts list's own refresh — losing
+the same gate race against that real sync. `GetConflictsAsync` was still calling
+plain `RunAsync`, so it hit exactly the failure mode `RunOrWaitAsync` exists to
+fix, just from a second call site nobody had updated. It now calls
+`RunOrWaitAsync` too. While tracing this down, `CopilotChatWindowStore`'s
+directory walk was also found descending into `bin`, `obj`, and `packages` —
+harmless on this project's own repo, but a real cost waiting to happen on a
+large, many-times-built client project — and those are now excluded alongside
+`node_modules` and dot-folders.
 
 A Claude Code transcript's absolute path is not confined to `cwd` — measured
 directly, 78% of a real session's lines mentioned it, scattered across tool
@@ -132,7 +171,14 @@ a transcript rewritten this way.
       which reuses the ordinary push/pull path — backup before overwrite and
       the open-chat check both still apply — so this is the in-app version of
       the manual fixes used earlier in this project's own development
-- [ ] Sync log
+- [x] Sync log: `SyncCoordinator.RecentRuns` keeps the last 20 real sync
+      outcomes in memory (per-PC, not persisted), each with a one-line summary
+      and an optional detail — which files were skipped or conflicted and why,
+      provider registration failures, Git prepare/publish messages. Shown as
+      expandable rows on the Sync page. Fixed, as part of this: dry runs (used
+      by the Conflicts list and Chat Library to refresh themselves) no longer
+      raise `Completed`, which had been causing those auto-refreshes to loop
+      and leave the sync gate stuck on "already running"
 
 ## Phase 4bis — Chat Library (priority over Prompt Library)
 

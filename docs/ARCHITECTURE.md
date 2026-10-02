@@ -381,7 +381,14 @@ could not be pulled so nothing was changed locally.
 taking a Git library dependency. That reuses the user's existing credential
 helper, SSH keys and proxy configuration, so the tool never handles or stores
 a credential. `GIT_TERMINAL_PROMPT=0` prevents an interactive prompt from
-hanging an unattended sync.
+hanging an unattended sync. The process itself has a timeout (5 minutes, 30
+seconds for a credential-free availability check), but exiting is not the same
+as being done: draining the redirected output and error streams afterwards
+uses a bounded wait (5 seconds) rather than the parameterless `WaitForExit()`,
+because a helper Git spawns — a credential manager, typically — can inherit
+those pipe handles and keep them open after `git` itself has exited, which
+would otherwise block forever with no process left to time out. A truncated
+tail on that rare path is preferable to a sync that never returns.
 
 A `sync` run is pull → copy → commit → push:
 
@@ -574,8 +581,8 @@ similarly named project cannot be synced accidentally. The configuration
 window follows the Windows 11 settings style (Mica backdrop, custom title bar,
 left `NavigationView`) and is split into three pages: **Sync** (status card with
 *Sync now*, repository/folder summary, a conflicts section, automatic sync
-toggle, last run), **Projects** (registered projects, add form, restore
-selection), and **Settings** (sync repository, appearance). The summary's open buttons use
+toggle, last run, and a sync log), **Projects** (registered projects, add form,
+restore selection), and **Settings** (sync repository, appearance). The summary's open buttons use
 `GitRemoteWebUrl` (in `CodeChatSync.Git`) to turn the origin remote (https,
 scp-like or `ssh://`, Azure DevOps SSH) into a credential-free https page; the
 button stays hidden for local or unrecognized remotes. The automatic sync toggle and theme
@@ -604,6 +611,14 @@ stale UI state cannot block it; a side that turns out to have nothing to keep
 is reported instead of guessed at, the same as an ordinary sync. The list
 refreshes after any sync completes, manual or automatic, and after resolving
 one entry.
+
+The Sync page's **Sync log** lists `SyncCoordinator.RecentRuns` (see above),
+each row collapsed to a one-line summary and expandable for the detail; a row
+with nothing to show besides its summary is disabled rather than left to
+expand into blank space. The window also now reacts to `SyncHost.SyncStarted`
+— raised the moment a real sync begins, including one the watcher triggered
+automatically — so "Syncing…" appears for a background run too, not only one
+started from *Sync now*.
 
 `CodeChatSync.Cli` remains available to anyone who
 prefers running `add`/`sync`/`discover` from a terminal or a script,
@@ -682,9 +697,88 @@ Git repository.
 `SyncCoordinator` runs one sync at a time. A request arriving while a run is
 in progress is dropped rather than queued: overlapping runs would copy the
 same files twice and race on the baselines, and the next close picks up
-anything new.
+anything new. `RunOrWaitAsync` is the one exception, used for *Sync now*, a
+project's own sync button, and the Conflicts list's own dry-run refresh
+(`SyncHost.GetConflictsAsync`): it waits for a busy gate to free up (up to 10
+seconds, by waiting on the gate's own semaphore rather than polling) and
+retries exactly once before giving up. These requests have no "next time" for
+an automatic trigger's logic to lean on, and the gate is busy astonishingly
+often for a reason that has nothing to do with an actual sync: `LoadSettingsAsync`
+on startup and every refresh of the Conflicts list — including the one a real
+sync itself triggers right after finishing — all run a dry run that holds the
+same gate just as briefly. Without this, clicking *Sync now* in the first
+moment after opening the window reliably lost that race and reported "a sync
+is already running" — technically correct, useless to the user, and with no
+way to make it actually sync short of clicking again and hoping the timing
+worked out.
 
-## App structure
+Both call sites needed the fix, not just *Sync now*: a sync could complete
+successfully in the background while `GetConflictsAsync`'s own dry run — racing
+the same real sync for the same gate — was rejected and surfaced its own "a
+sync is already running" message, which read as the whole operation having
+failed even though the chat had already been pushed. Confirmed directly:
+`CODECHATSYNC_TRACE_LOG` (below) showed a real sync completing end to end,
+including a successful `git push` that landed on the remote, at the same moment
+the window displayed that message — the user had no way to tell the difference
+between "still working" and "silently failed" from the UI alone.
+
+A **dry run never raises `Completed` or joins the log**, and `Started` is
+raised for a real sync only. This is not cosmetic: the Conflicts list and the
+Chat Library both refresh themselves by running a dry run whenever a sync
+completes (see above), so if a dry run's own completion were announced the
+same way, that announcement would trigger another refresh, whose dry run would
+announce itself in turn — the gate (`SyncCoordinator`'s semaphore) would stay
+held forever, and every subsequent sync request, manual or automatic, would
+report "a sync is already running" with no way out. This was an actual
+regression once the Conflicts section started refreshing on every completion;
+the fix is structural, not a special case for that one caller, so any future
+listener that inspects on completion is safe by construction.
+
+`SyncCoordinator.RecentRuns` keeps the last 20 **real** sync outcomes in
+memory (newest first; per-PC, cleared on restart — there is no reason to
+persist or sync it). Each `SyncLogEntry` carries a one-line summary plus an
+optional `Detail`: every entry with a `Conflict` or `Skipped` action, any
+provider registration failure, and the publish/prepare messages from Git, so
+clicking into a failed or incomplete run on the Sync page's **Sync log**
+section answers "which file, and why" without reaching for the CLI.
+`NeedsAttention` flags a run for a highlighted icon the same way
+`SyncOutcome.NeedsAttention` does for the status card.
+
+## Diagnosing a slow or seemingly stuck sync
+
+`CodeChatSync.Core.SyncTrace` is a step-by-step timing trace of the whole sync
+pipeline, off by default and with no overhead when disabled — every call site
+checks `IsEnabled` first, so leaving the instrumentation in place permanently
+costs nothing. Enabled by setting `CODECHATSYNC_TRACE_LOG` to a file path before
+launching either the CLI or the app (for the app, from a terminal or via
+`Start-Process` with the variable set on that one process — the GUI has no way
+to set its own environment before Windows creates the process); never set by
+the test suite, so a test run never writes outside its own temp directories.
+The file is truncated once per process rather than appended across runs, so it
+always holds exactly the run it was enabled for.
+
+Every step is timestamped with the elapsed time since the process started and
+the managed thread ID, and traced end to end: `SyncOrchestrator.Run` (project
+resolution, publisher prepare/publish), `ChatSyncService.Sync` (discovery, then
+**every file individually** — not sampled — so a hang shows up as the last
+"start" line with no matching "done"), `VisualStudioChatProvider`'s two
+discovery phases and its SQLite/`.vs` registration steps, the directory count
+and duration of every `.vs` tree walk, and every `git` invocation with its exit
+code and output size. `SyncCoordinator` also logs a gate rejection and a
+`RunOrWaitAsync` wait/retry decision, both otherwise invisible — a rejected
+request runs nothing downstream, so without this line it leaves no trace of
+having happened at all.
+
+This is how the actual cause of an "already running" message that would not go
+away was found: the real sync was completing normally, pull through push, in
+single-digit seconds; what the user saw was a *different* dry run (the
+Conflicts list's own refresh) losing the same gate race and surfacing its
+rejection as if the sync itself had failed — see `RunOrWaitAsync` above. The
+same investigation also caught `CopilotChatWindowStore`'s directory walk
+descending into `bin`, `obj`, and `packages`, which cost nothing on this
+project's own repo (dozens of folders) but could have been expensive on a
+large, many-times-built client project; those are now excluded alongside
+`node_modules` and dot-folders.
 
 `CodeChatSync.App` composes rather than implements:
 

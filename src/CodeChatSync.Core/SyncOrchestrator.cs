@@ -134,6 +134,7 @@ public sealed class SyncOrchestrator
     public SyncRunResult Run(SyncRunOptions? options = null)
     {
         var runOptions = options ?? new SyncRunOptions();
+        SyncTrace.Log($"Run: start (dryRun={runOptions.DryRun}, projectFilter={runOptions.ProjectFilter}, exactRemote={runOptions.ExactProjectRemote})");
 
         if (_workspace.SyncRootPath is not { Length: > 0 } syncRoot)
         {
@@ -145,7 +146,8 @@ public sealed class SyncOrchestrator
             throw new SyncConfigurationException($"The configured sync folder no longer exists: {syncRoot}");
         }
 
-        var resolution = _workspace.ResolveProjects();
+        var resolution = SyncTrace.Time("Run: ResolveProjects", _workspace.ResolveProjects);
+        SyncTrace.Log($"Run: resolved {resolution.Projects.Count} project(s), {resolution.Unresolved.Count} unresolved");
         var projects = runOptions.ExactProjectRemote is { } remote
             ? resolution.Projects.Where(project => string.Equals(
                 project.Identity.NormalizedRemote, remote, StringComparison.OrdinalIgnoreCase)).ToArray()
@@ -165,8 +167,9 @@ public sealed class SyncOrchestrator
         string? prepareMessage = null;
         if (!runOptions.DryRun && _publisher is not null)
         {
-            var prepared = _publisher.PrepareForSync();
+            var prepared = SyncTrace.Time("Run: publisher.PrepareForSync", _publisher.PrepareForSync);
             prepareMessage = prepared.Message;
+            SyncTrace.Log($"Run: prepare result canContinue={prepared.CanContinue} message={prepared.Message}");
 
             if (!prepared.CanContinue)
             {
@@ -213,7 +216,14 @@ public sealed class SyncOrchestrator
                     shouldRestore = path => selectedIds.Contains(sessionProvider.GetSessionId(path));
                 }
 
-                var report = _syncService.Sync(provider, project, syncRoot, state, runOptions.DryRun, shouldRestore);
+                var report = SyncTrace.Time(
+                    $"Run: {provider.Id}/{project.Identity.NormalizedRemote} sync",
+                    () => _syncService.Sync(provider, project, syncRoot, state, runOptions.DryRun, shouldRestore));
+                SyncTrace.Log(
+                    $"Run: {provider.Id}/{project.Identity.NormalizedRemote} report — "
+                    + $"{report.PushedCount} pushed, {report.PulledCount} pulled, {report.UnchangedCount} unchanged, "
+                    + $"{report.SkippedCount} skipped, {report.ConflictCount} conflicts, "
+                    + $"registered={report.RegisteredSessionCount}, listed={report.ListedSessionCount}");
 
                 if (!runOptions.DryRun)
                 {
@@ -227,9 +237,13 @@ public sealed class SyncOrchestrator
         string? publishMessage = null;
         if (!runOptions.DryRun && _publisher is not null)
         {
-            publishMessage = _publisher.PublishChanges(results.Sum(result => result.Report.PushedCount)).Message;
+            var pushedCount = results.Sum(result => result.Report.PushedCount);
+            publishMessage = SyncTrace.Time(
+                "Run: publisher.PublishChanges",
+                () => _publisher.PublishChanges(pushedCount)).Message;
         }
 
+        SyncTrace.Log("Run: done");
         return new SyncRunResult
         {
             Projects = results,

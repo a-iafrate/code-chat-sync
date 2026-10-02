@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using CodeChatSync.Core;
 
 namespace CodeChatSync.Git;
 
@@ -85,7 +86,10 @@ public sealed class GitCommandRunner(string? gitExecutable = null)
     }
 
     /// <summary>Runs a Git command in <paramref name="workingDirectory"/>.</summary>
-    public GitResult Run(string workingDirectory, IReadOnlyList<string> arguments)
+    public GitResult Run(string workingDirectory, IReadOnlyList<string> arguments) =>
+        SyncTrace.Time($"git {string.Join(' ', arguments)} (in {workingDirectory})", () => RunCore(workingDirectory, arguments));
+
+    private GitResult RunCore(string workingDirectory, IReadOnlyList<string> arguments)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -119,8 +123,10 @@ public sealed class GitCommandRunner(string? gitExecutable = null)
 
         var standardOutput = new StringBuilder();
         var standardError = new StringBuilder();
-        process.OutputDataReceived += (_, e) => Append(standardOutput, e.Data);
-        process.ErrorDataReceived += (_, e) => Append(standardError, e.Data);
+        var outputClosed = new TaskCompletionSource();
+        var errorClosed = new TaskCompletionSource();
+        process.OutputDataReceived += (_, e) => Append(standardOutput, e.Data, outputClosed);
+        process.ErrorDataReceived += (_, e) => Append(standardError, e.Data, errorClosed);
 
         try
         {
@@ -143,10 +149,18 @@ public sealed class GitCommandRunner(string? gitExecutable = null)
                 $"git {arguments.FirstOrDefault()} timed out after {Timeout.TotalMinutes:N0} minutes.");
         }
 
-        // Lets the redirected streams finish flushing before the buffers are read.
-        process.WaitForExit();
+        // Lets the redirected streams finish flushing before the buffers are read, but
+        // never indefinitely: a helper Git started — a credential manager, say — can
+        // inherit the handles and outlive it, and the parameterless WaitForExit would then
+        // block for good. Git has already exited here, so a truncated tail is worth far
+        // more than a sync that never ends.
+        Task.WaitAll([outputClosed.Task, errorClosed.Task], StreamFlushTimeout);
 
-        return new GitResult(process.ExitCode, standardOutput.ToString(), standardError.ToString());
+        var result = new GitResult(process.ExitCode, standardOutput.ToString(), standardError.ToString());
+        SyncTrace.Log(
+            $"git {string.Join(' ', arguments)}: exit={result.ExitCode}, "
+            + $"stdout={result.StandardOutput.Length} char(s), stderr={result.StandardError.Length} char(s)");
+        return result;
     }
 
     /// <summary>Runs a Git command and throws when it fails.</summary>
@@ -162,12 +176,22 @@ public sealed class GitCommandRunner(string? gitExecutable = null)
         return result;
     }
 
-    private static void Append(StringBuilder builder, string? line)
+    /// <summary>How long the redirected streams are given to drain after Git has exited.</summary>
+    private static readonly TimeSpan StreamFlushTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Collects a line, treating the null that ends the stream as the signal that this
+    /// pipe is done.
+    /// </summary>
+    private static void Append(StringBuilder builder, string? line, TaskCompletionSource closed)
     {
-        if (line is not null)
+        if (line is null)
         {
-            builder.AppendLine(line);
+            closed.TrySetResult();
+            return;
         }
+
+        builder.AppendLine(line);
     }
 
     private static void TryKill(Process process)

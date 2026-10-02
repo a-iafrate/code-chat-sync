@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
 		}
 
 		_syncHost.SyncCompleted += OnSyncCompleted;
+		_syncHost.SyncStarted += OnSyncStarted;
 		_syncHost.ProviderRunningChanged += OnProviderRunningChanged;
 		Closed += OnClosed;
 		WindowRoot.Loaded += OnWindowRootLoaded;
@@ -53,6 +54,7 @@ public sealed partial class MainWindow : Window
 		}
 
 		UpdateStatus();
+		RefreshSyncLog();
 		_ = LoadSettingsAsync();
 	}
 
@@ -1390,6 +1392,7 @@ public sealed partial class MainWindow : Window
 		try
 		{
 			ShowOutcome(await _syncHost.SyncNowAsync());
+			RefreshSyncLog();
 			await LoadConflictsAsync();
 		}
 		finally
@@ -1403,8 +1406,16 @@ public sealed partial class MainWindow : Window
 		DispatcherQueue.TryEnqueue(async () =>
 		{
 			ShowOutcome(outcome);
+			RefreshSyncLog();
 			await LoadConflictsAsync();
 		});
+
+	/// <summary>
+	/// A sync triggered automatically by the watcher otherwise gives no sign of life until
+	/// it finishes; this is what makes "Syncing…" appear for that case too.
+	/// </summary>
+	private void OnSyncStarted(object? sender, EventArgs e) =>
+		DispatcherQueue.TryEnqueue(UpdateStatus);
 
 	private void OnProviderRunningChanged(object? sender, bool isRunning) =>
 		DispatcherQueue.TryEnqueue(UpdateStatus);
@@ -1415,6 +1426,82 @@ public sealed partial class MainWindow : Window
 		LastRunText.Text = $"{_lastOutcomeTime:g} · {outcome.Status}: {outcome.Summary}";
 		MarkFirstSyncCompleted(outcome);
 		UpdateStatus();
+	}
+
+	/// <summary>
+	/// Rebuilds the sync log from the coordinator's in-memory history. Cheap and
+	/// idempotent, so it is safe to call after every event that could have changed it.
+	/// </summary>
+	private void RefreshSyncLog()
+	{
+		SyncLogPanel.Children.Clear();
+		var runs = _syncHost.RecentRuns;
+		if (runs.Count == 0)
+		{
+			SyncLogPanel.Children.Add(CreateHintCard("No sync has completed in this session yet."));
+			return;
+		}
+
+		foreach (var run in runs)
+		{
+			SyncLogPanel.Children.Add(CreateSyncLogRow(run));
+		}
+	}
+
+	private Expander CreateSyncLogRow(SyncLogEntry run)
+	{
+		var glyph = run.Status switch
+		{
+			SyncOutcomeStatus.Completed when !run.NeedsAttention => "",
+			SyncOutcomeStatus.AlreadyRunning => "",
+			_ => ""
+		};
+		var glyphColor = (Brush)Application.Current.Resources[
+			run.NeedsAttention ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush"];
+
+		var header = new Grid { ColumnSpacing = 16, MinHeight = 40 };
+		header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+		header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+		header.Children.Add(new FontIcon { Glyph = glyph, Foreground = glyphColor, FontSize = 16, VerticalAlignment = VerticalAlignment.Center });
+
+		var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+		title.Children.Add(new TextBlock { Text = run.Summary, TextTrimming = TextTrimming.CharacterEllipsis });
+		title.Children.Add(new TextBlock
+		{
+			Style = (Style)WindowRoot.Resources["CaptionStyle"],
+			Text = $"{run.At:g} · {run.Status}"
+		});
+		Grid.SetColumn(title, 1);
+		header.Children.Add(title);
+
+		var expander = new Expander
+		{
+			Header = header,
+			IsExpanded = false,
+			HorizontalAlignment = HorizontalAlignment.Stretch,
+			HorizontalContentAlignment = HorizontalAlignment.Stretch
+		};
+
+		if (run.Detail is { Length: > 0 } detail)
+		{
+			expander.Content = new TextBlock
+			{
+				Text = detail,
+				TextWrapping = TextWrapping.Wrap,
+				IsTextSelectionEnabled = true,
+				Padding = new Thickness(48, 8, 0, 8),
+				FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+				FontSize = 13
+			};
+		}
+		else
+		{
+			// Nothing to expand into: say so rather than showing a dead disclosure arrow.
+			expander.IsEnabled = false;
+		}
+
+		return expander;
 	}
 
 	private void UpdateStatus()
@@ -1479,6 +1566,7 @@ public sealed partial class MainWindow : Window
 	private void OnClosed(object sender, WindowEventArgs args)
 	{
 		_syncHost.SyncCompleted -= OnSyncCompleted;
+		_syncHost.SyncStarted -= OnSyncStarted;
 		_syncHost.ProviderRunningChanged -= OnProviderRunningChanged;
 		Closed -= OnClosed;
 	}

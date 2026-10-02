@@ -33,17 +33,26 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
         ArgumentNullException.ThrowIfNull(state);
         ArgumentException.ThrowIfNullOrWhiteSpace(syncRootPath);
 
-        var running = _processGuard.GetRunningProcesses(provider.ProcessNames);
+        var running = SyncTrace.Time(
+            $"{provider.Id}: GetRunningProcesses",
+            () => _processGuard.GetRunningProcesses(provider.ProcessNames));
         var projectSyncRoot = Path.Combine(
             Path.GetFullPath(syncRootPath),
             provider.Id,
             project.SyncFolderName);
 
-        var (relativePaths, inUsePaths) = CollectRelativePaths(provider, project, projectSyncRoot);
+        var (relativePaths, inUsePaths) = SyncTrace.Time(
+            $"{provider.Id}: CollectRelativePaths (provider.Discover + sync folder scan)",
+            () => CollectRelativePaths(provider, project, projectSyncRoot));
+        SyncTrace.Log($"{provider.Id}: {relativePaths.Count} relative path(s), {inUsePaths.Count} in use");
         var results = new List<SyncEntryResult>(relativePaths.Count);
 
+        var fileIndex = 0;
+        var fileCount = relativePaths.Count;
         foreach (var relativePath in relativePaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
+            fileIndex++;
+
             if (inUsePaths.Contains(relativePath))
             {
                 // The provider reports this chat as open: copying either way risks a torn file.
@@ -57,14 +66,22 @@ public sealed class ChatSyncService(IProcessGuard processGuard)
             }
 
             var restoreAllowed = shouldRestore?.Invoke(relativePath) ?? true;
-            results.Add(SyncSingle(provider, project, projectSyncRoot, syncRootPath, state, relativePath, running, dryRun, restoreAllowed));
+
+            // Every file is timed individually, not just sampled: when a run appears to
+            // hang, the last "start" line with no matching "done" is exactly the file (and
+            // the step within SyncSingle) where it is actually stuck.
+            var index = fileIndex;
+            var path = relativePath;
+            results.Add(SyncTrace.Time(
+                $"{provider.Id}: file {index}/{fileCount} {path}",
+                () => SyncSingle(provider, project, projectSyncRoot, syncRootPath, state, path, running, dryRun, restoreAllowed)));
         }
 
-        return new SyncReport
-        {
-            Entries = results,
-            Registration = RegisterSessions(provider, project, relativePaths, shouldRestore, running, dryRun)
-        };
+        var registration = SyncTrace.Time(
+            $"{provider.Id}: RegisterSessions",
+            () => RegisterSessions(provider, project, relativePaths, shouldRestore, running, dryRun));
+
+        return new SyncReport { Entries = results, Registration = registration };
     }
 
     /// <summary>

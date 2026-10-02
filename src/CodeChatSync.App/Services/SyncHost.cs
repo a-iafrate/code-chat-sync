@@ -41,6 +41,7 @@ public sealed class SyncHost : IAsyncDisposable
         ];
 
         _coordinator.Completed += (_, outcome) => SyncCompleted?.Invoke(this, outcome);
+        _coordinator.Started += (_, _) => SyncStarted?.Invoke(this, EventArgs.Empty);
         foreach (var (_, watcher) in _watchers)
         {
             watcher.ProviderRunningChanged += OnProviderRunningChanged;
@@ -50,6 +51,9 @@ public sealed class SyncHost : IAsyncDisposable
 
     /// <summary>Raised when a sync run finishes, from a background thread.</summary>
     public event EventHandler<SyncOutcome>? SyncCompleted;
+
+    /// <summary>Raised when a real (non-dry-run) sync starts, from a background thread.</summary>
+    public event EventHandler? SyncStarted;
 
     /// <summary>Raised when the set of running, not skipped providers changes; true while any is running.</summary>
     public event EventHandler<bool>? ProviderRunningChanged;
@@ -74,16 +78,21 @@ public sealed class SyncHost : IAsyncDisposable
     /// <summary>Outcome of the most recent sync, if any has run yet.</summary>
     public SyncOutcome? LastOutcome => _coordinator.LastOutcome;
 
+    /// <summary>The most recent finished runs, newest first, for the window's log.</summary>
+    public IReadOnlyList<SyncLogEntry> RecentRuns => _coordinator.RecentRuns;
+
     /// <summary>Starts watching for either provider closing.</summary>
     public void Start() => _watching ??= _watchers
         .Select(entry => entry.Watcher.WatchAsync(_cancellation.Token))
         .ToArray();
 
     /// <summary>Runs a sync now, for the tray's "Sync now" command.</summary>
-    public Task<SyncOutcome> SyncNowAsync() => _coordinator.RunAsync(cancellationToken: _cancellation.Token);
+    public Task<SyncOutcome> SyncNowAsync() =>
+        _coordinator.RunOrWaitAsync(cancellationToken: _cancellation.Token);
 
     public Task<SyncOutcome> SyncProjectAsync(ProjectIdentity identity) =>
-        _coordinator.RunAsync(new SyncRunOptions { ExactProjectRemote = identity.NormalizedRemote }, _cancellation.Token);
+        _coordinator.RunOrWaitAsync(
+            new SyncRunOptions { ExactProjectRemote = identity.NormalizedRemote }, cancellationToken: _cancellation.Token);
 
     /// <summary>
     /// Chats currently changed on both sides across every registered project: the same
@@ -94,7 +103,13 @@ public sealed class SyncHost : IAsyncDisposable
     /// </summary>
     public async Task<(IReadOnlyList<ConflictInfo> Conflicts, string? Message)> GetConflictsAsync()
     {
-        var outcome = await _coordinator.RunAsync(new SyncRunOptions { DryRun = true }, _cancellation.Token).ConfigureAwait(false);
+        // This dry run fires automatically and often — on startup, after every sync, after
+        // resolving a conflict — so it routinely races the user's own "Sync now" click or
+        // another automatic refresh for the same brief gate. RunOrWaitAsync resolves that
+        // silently in the common case; only a gate still busy after the retry window is
+        // worth telling the user about, since by then something really is taking a while.
+        var outcome = await _coordinator.RunOrWaitAsync(
+            new SyncRunOptions { DryRun = true }, cancellationToken: _cancellation.Token).ConfigureAwait(false);
         if (outcome.Status is SyncOutcomeStatus.AlreadyRunning)
         {
             return ([], "A sync is already running. Try again once it finishes.");

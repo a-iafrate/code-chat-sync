@@ -196,8 +196,14 @@ public static class CopilotChatWindowStore
             yield break;
         }
 
-        foreach (var solutionFolder in EnumerateSolutionFolders(projectRoot))
+        var visitedDirectories = 0;
+        var solutionFoldersFound = 0;
+        var sessionsFoldersFound = 0;
+        var stopwatch = SyncTrace.IsEnabled ? System.Diagnostics.Stopwatch.StartNew() : null;
+
+        foreach (var solutionFolder in EnumerateSolutionFolders(projectRoot, count => visitedDirectories = count))
         {
+            solutionFoldersFound++;
             var chatFolder = Path.Combine(solutionFolder, ChatFolderName);
             if (!Directory.Exists(chatFolder))
             {
@@ -209,21 +215,41 @@ public static class CopilotChatWindowStore
                 var sessions = Path.Combine(workspaceFolder, SessionsFolderName);
                 if (Directory.Exists(sessions))
                 {
+                    sessionsFoldersFound++;
                     yield return sessions;
                 }
             }
         }
+
+        if (stopwatch is not null)
+        {
+            SyncTrace.Log(
+                $"CopilotChatWindowStore: walked {visitedDirectories} director{(visitedDirectories == 1 ? "y" : "ies")} under "
+                + $"{projectRoot}, found {solutionFoldersFound} .vs solution folder(s) and {sessionsFoldersFound} sessions "
+                + $"folder(s), in {stopwatch.Elapsed:mm\\:ss\\.fff}");
+        }
     }
 
+    /// <summary>
+    /// Folder names never worth descending into while looking for a <c>.vs</c> folder:
+    /// build output and restored packages can run into the thousands of entries for a
+    /// solution that has been built many times, and version control metadata never holds
+    /// one either. <c>.vs</c> itself and other dot-folders are excluded by the caller.
+    /// </summary>
+    private static readonly string[] ExcludedDirectoryNames = ["bin", "obj", "node_modules", "packages"];
+
     /// <summary>Every <c>.vs/&lt;solution&gt;</c> folder within reach of the project root.</summary>
-    private static IEnumerable<string> EnumerateSolutionFolders(string projectRoot)
+    /// <param name="onFinished">Reports the total number of directories visited, for tracing.</param>
+    private static IEnumerable<string> EnumerateSolutionFolders(string projectRoot, Action<int>? onFinished = null)
     {
         var pending = new Queue<(string Directory, int Depth)>();
         pending.Enqueue((Path.GetFullPath(projectRoot), 0));
+        var visited = 0;
 
         while (pending.Count > 0)
         {
             var (directory, depth) = pending.Dequeue();
+            visited++;
             var visualStudioFolder = Path.Combine(directory, VisualStudioFolderName);
             if (Directory.Exists(visualStudioFolder))
             {
@@ -241,12 +267,15 @@ public static class CopilotChatWindowStore
             foreach (var child in SafeEnumerateDirectories(directory))
             {
                 var name = Path.GetFileName(child);
-                if (!name.StartsWith('.') && !string.Equals(name, "node_modules", StringComparison.OrdinalIgnoreCase))
+                if (!name.StartsWith('.')
+                    && !ExcludedDirectoryNames.Contains(name, StringComparer.OrdinalIgnoreCase))
                 {
                     pending.Enqueue((child, depth + 1));
                 }
             }
         }
+
+        onFinished?.Invoke(visited);
     }
 
     private static string? GetSolutionRelativePath(string projectRoot, string sessionsDirectory)
