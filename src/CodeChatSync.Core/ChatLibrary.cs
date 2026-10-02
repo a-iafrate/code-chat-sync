@@ -81,6 +81,32 @@ public interface IArchivedChatReader : IChatProvider
 }
 
 /// <summary>
+/// Optional provider capability: change the title of an archived chat, in the archive only.
+/// </summary>
+/// <remarks>
+/// Edits files in the sync folder, never the tool's live storage, so it needs no "tool must
+/// be closed" guard. The tool picks the new title up the next time the chat is restored
+/// to a PC. An existing file is backed up before it is rewritten.
+/// </remarks>
+public interface IArchivedChatRenamer : IChatProvider
+{
+    /// <summary>
+    /// Sets the title of chat <paramref name="chatId"/> in <paramref name="projectSyncFolder"/>
+    /// to <paramref name="title"/> (already normalized). Returns <see langword="false"/> when
+    /// the chat is not in the archive.
+    /// </summary>
+    bool RenameArchivedChat(string projectSyncFolder, string chatId, string title);
+}
+
+/// <summary>Outcome of <see cref="ChatLibrary.Rename"/>.</summary>
+public sealed record ChatRenameResult(bool Succeeded, string Message)
+{
+    public static ChatRenameResult Done(string message) => new(true, message);
+
+    public static ChatRenameResult Failed(string message) => new(false, message);
+}
+
+/// <summary>
 /// Collects messages while a provider streams a transcript, enforcing the limits that keep
 /// a viewer responsive: transcripts run to tens of megabytes, almost all of it tool output.
 /// </summary>
@@ -236,6 +262,69 @@ public static class ChatLibrary
 
         var folder = Path.Combine(Path.GetFullPath(syncRoot), reader.Id, name);
         return reader.ReadArchivedChat(folder, chatId, config.Find(project)?.LocalPath);
+    }
+
+    /// <summary>
+    /// Renames one archived chat and publishes the change so the other PCs get it.
+    /// </summary>
+    /// <remarks>
+    /// Pulls first so the edit lands on the latest archive, then edits, then publishes. The
+    /// project folder is resolved exactly as <see cref="Read"/> does, so only a chat inside
+    /// its own project's folder can be touched.
+    /// </remarks>
+    public static ChatRenameResult Rename(
+        SharedConfig shared,
+        string syncRoot,
+        IEnumerable<IChatProvider> providers,
+        ISyncPublisher? publisher,
+        string providerId,
+        ProjectIdentity project,
+        string chatId,
+        string? newTitle)
+    {
+        ArgumentNullException.ThrowIfNull(shared);
+        ArgumentException.ThrowIfNullOrWhiteSpace(syncRoot);
+        ArgumentNullException.ThrowIfNull(providers);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+
+        var title = ChatTitle.Normalize(newTitle);
+        if (title is null)
+        {
+            return ChatRenameResult.Failed("Type a title for the chat.");
+        }
+
+        var renamer = providers
+            .OfType<IArchivedChatRenamer>()
+            .FirstOrDefault(candidate => string.Equals(candidate.Id, providerId, StringComparison.OrdinalIgnoreCase));
+        var name = shared.Find(project)?.Name ?? project.Slug;
+        if (renamer is null)
+        {
+            return ChatRenameResult.Failed("This kind of chat cannot be renamed.");
+        }
+
+        if (!IsSafeFolderName(name))
+        {
+            return ChatRenameResult.Failed("The project folder name is not usable.");
+        }
+
+        var prepared = publisher?.PrepareForSync();
+        if (prepared is { CanContinue: false })
+        {
+            return ChatRenameResult.Failed(prepared.Message ?? "The sync folder could not be brought up to date.");
+        }
+
+        var folder = Path.Combine(Path.GetFullPath(syncRoot), renamer.Id, name);
+        if (!renamer.RenameArchivedChat(folder, chatId, title))
+        {
+            return ChatRenameResult.Failed("The chat is no longer in the archive.");
+        }
+
+        var published = publisher?.PublishChanges(1);
+        return published is { CanContinue: false }
+            ? ChatRenameResult.Failed($"Renamed locally, but not published: {published.Message}")
+            : ChatRenameResult.Done("Renamed.");
     }
 
     private static bool IsSafeFolderName(string name) =>

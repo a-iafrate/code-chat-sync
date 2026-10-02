@@ -32,12 +32,14 @@ internal static class ClaudeTranscriptReader
 
     private static readonly byte[] CwdProperty = "cwd"u8.ToArray();
     private static readonly byte[] TitleProperty = "aiTitle"u8.ToArray();
+    private static readonly byte[] CustomTitleProperty = "customTitle"u8.ToArray();
     private static readonly byte[] TimestampProperty = "timestamp"u8.ToArray();
 
     public static TranscriptMetadata Read(string path, bool includeTitle)
     {
         string? workingDirectory = null;
         string? title = null;
+        string? customTitle = null;
         DateTimeOffset? earliest = null;
         DateTimeOffset? latest = null;
         string? firstPrompt = null;
@@ -63,11 +65,16 @@ internal static class ClaudeTranscriptReader
                 firstPrompt = TryReadPrompt(line);
             }
 
-            var (lineCwd, lineTitle, lineTimestamp) = ParseLine(line);
+            var (lineCwd, lineTitle, lineCustomTitle, lineTimestamp) = ParseLine(line);
             workingDirectory ??= lineCwd;
             if (lineTitle is not null)
             {
                 title = lineTitle;
+            }
+
+            if (lineCustomTitle is not null)
+            {
+                customTitle = lineCustomTitle;
             }
 
             // Earliest and latest rather than first and last: bookkeeping records are not
@@ -85,7 +92,7 @@ internal static class ClaudeTranscriptReader
         }
 
         return includeTitle
-            ? new TranscriptMetadata(workingDirectory, title, earliest, latest, firstPrompt)
+            ? new TranscriptMetadata(workingDirectory, customTitle ?? title, earliest, latest, firstPrompt)
             : new TranscriptMetadata(workingDirectory, null);
     }
 
@@ -177,10 +184,11 @@ internal static class ClaudeTranscriptReader
     private static bool IsTrue(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True;
 
-    private static (string? Cwd, string? Title, DateTimeOffset? Timestamp) ParseLine(string line)
+    private static (string? Cwd, string? Title, string? CustomTitle, DateTimeOffset? Timestamp) ParseLine(string line)
     {
         string? cwd = null;
         string? title = null;
+        string? customTitle = null;
         DateTimeOffset? timestamp = null;
 
         try
@@ -188,14 +196,15 @@ internal static class ClaudeTranscriptReader
             var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(line));
             if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
             {
-                return (null, null, null);
+                return (null, null, null, null);
             }
 
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
                 var isCwd = reader.ValueTextEquals(CwdProperty);
                 var isTitle = !isCwd && reader.ValueTextEquals(TitleProperty);
-                var isTimestamp = !isCwd && !isTitle && reader.ValueTextEquals(TimestampProperty);
+                var isCustomTitle = !isCwd && !isTitle && reader.ValueTextEquals(CustomTitleProperty);
+                var isTimestamp = !isCwd && !isTitle && !isCustomTitle && reader.ValueTextEquals(TimestampProperty);
 
                 if (!reader.Read())
                 {
@@ -213,7 +222,7 @@ internal static class ClaudeTranscriptReader
                         timestamp ??= parsed;
                     }
                 }
-                else if (reader.TokenType == JsonTokenType.String && (isCwd || isTitle))
+                else if (reader.TokenType == JsonTokenType.String && (isCwd || isTitle || isCustomTitle))
                 {
                     var value = reader.GetString();
                     if (string.IsNullOrWhiteSpace(value))
@@ -228,7 +237,15 @@ internal static class ClaudeTranscriptReader
                     else
                     {
                         value = value.Trim();
-                        title = value.Length > MaxTitleLength ? value[..MaxTitleLength] : value;
+                        value = value.Length > MaxTitleLength ? value[..MaxTitleLength] : value;
+                        if (isCustomTitle)
+                        {
+                            customTitle = value;
+                        }
+                        else
+                        {
+                            title = value;
+                        }
                     }
                 }
                 else
@@ -240,10 +257,10 @@ internal static class ClaudeTranscriptReader
         catch (Exception exception) when (exception is JsonException or InvalidOperationException)
         {
             // A torn or non-JSON line carries no trustworthy metadata.
-            return (null, null, null);
+            return (null, null, null, null);
         }
 
-        return (cwd, title, timestamp);
+        return (cwd, title, customTitle, timestamp);
     }
 }
 

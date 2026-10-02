@@ -13,7 +13,7 @@ namespace CodeChatSync.Providers.VisualStudio;
 /// </remarks>
 public sealed class VisualStudioChatProvider
     : IChatSessionRegistrar, IChatContentMapper, IChatRestoreValidator, IDerivedChatContent,
-        IArchivedChatCatalog, IArchivedChatReader
+        IArchivedChatCatalog, IArchivedChatReader, IArchivedChatRenamer
 {
     /// <summary>
     /// Runtime state that is specific to one PC or to a live session, and therefore
@@ -59,8 +59,14 @@ public sealed class VisualStudioChatProvider
     /// <summary>What this PC rebuilt, per project, loaded once per run.</summary>
     private readonly Dictionary<string, CopilotRebuiltRecords> _rebuilt = new(StringComparer.OrdinalIgnoreCase);
 
-    public VisualStudioChatProvider(string? sessionStateRoot = null, string? sessionStorePath = null)
+    private readonly string? _titleBackupDirectory;
+
+    public VisualStudioChatProvider(
+        string? sessionStateRoot = null,
+        string? sessionStorePath = null,
+        string? titleBackupDirectory = null)
     {
+        _titleBackupDirectory = titleBackupDirectory;
         _sessionStateRoot = sessionStateRoot ?? CopilotChatDiscovery.GetDefaultSessionStateRoot();
         _sessionStore = new CopilotSessionStore(
             sessionStorePath ?? CopilotSessionStore.GetDefaultPath(_sessionStateRoot));
@@ -180,6 +186,23 @@ public sealed class VisualStudioChatProvider
                     session.Files.Sum(file => file.Length),
                     session.Files.Count))
         ];
+    }
+
+    /// <summary>
+    /// Renames an archived session by rewriting its descriptor, as Visual Studio does. Other
+    /// PCs pick the name up when they restore the chat; a PC that already lists it takes the
+    /// new name at the next sync.
+    /// </summary>
+    public bool RenameArchivedChat(string projectSyncFolder, string chatId, string title)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        // Resolved under the project's folder, so a hostile id cannot reach outside it.
+        var sessionDirectory = RelativePathGuard.ResolveUnder(projectSyncFolder, chatId);
+        return Directory.Exists(sessionDirectory)
+            && CopilotDescriptorRenamer.Rename(sessionDirectory, title, _titleBackupDirectory);
     }
 
     /// <summary>

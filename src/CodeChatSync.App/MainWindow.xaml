@@ -514,7 +514,7 @@
 										</StackPanel>
 									</Button>
 								</StackPanel>
-								<TextBlock Text="Every chat held in the private sync repository, per project, whether or not it has been restored on this PC. Dates are those of the PC that held the conversation. Select a chat to read it."
+								<TextBlock Text="Every chat held in the private sync repository, per project, whether or not it has been restored on this PC. Dates are those of the PC that held the conversation. Select a chat, or use the eye icon beside it, to read it."
 										   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,4,0,16" />
 								<InfoBar x:Name="ChatsInfoBar" IsOpen="False" IsClosable="True" />
 								<TextBox x:Name="ChatSearchBox" PlaceholderText="Search by title or ID"

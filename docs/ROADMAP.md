@@ -199,8 +199,13 @@ a transcript rewritten this way.
       `ArchivedChatContentBuilder` (1,000 messages, 20,000 characters each, and the
       page says what was left out). A 48 MB chat reads in under 200 ms. Ids from the
       UI are never trusted as paths
-- [ ] Editor for the chat title (the name shown in Visual Studio's Chat
-      History panel), if the format exposes it
+- [x] Editor for the chat title (pencil icon on a row): edits the archive only,
+      then pulls first and publishes, behind the sync gate. Visual Studio: rewrites
+      `workspace.yaml` `name` and `user_named: true`, descriptor backed up first; a
+      PC that already lists the chat takes the name into its `session-store.db`
+      `summary` on the next sync. Claude Code: appends a `custom-title` record
+      (the latest wins). Not yet verified: what Visual Studio's chat list shows for
+      a renamed chat whose window record keeps the old header name
 - [ ] Deleting a synced chat
 - [ ] Same write rule as everything else: never while `devenv.exe` is
       running, backup before overwrite

@@ -151,7 +151,7 @@ public sealed partial class MainWindow
         };
     }
 
-    private Button CreateChatRow(ChatLibraryProject project, ArchivedChat chat)
+    private Grid CreateChatRow(ChatLibraryProject project, ArchivedChat chat)
     {
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var untitled = string.IsNullOrWhiteSpace(chat.Title);
@@ -168,8 +168,8 @@ public sealed partial class MainWindow
             Text = DescribeChat(chat)
         });
 
-        // A button, so the whole row is the target and it works from the keyboard.
-        var row = new Button
+        // The title and details are one large target that works from the keyboard...
+        var open = new Button
         {
             Content = text,
             Style = (Style)Application.Current.Resources["SubtleButtonStyle"],
@@ -178,12 +178,111 @@ public sealed partial class MainWindow
             MinHeight = 48,
             Padding = new Thickness(8, 6, 8, 6)
         };
-        row.Click += async (_, _) => await OpenChatAsync(project, chat);
+        open.Click += async (_, _) => await OpenChatAsync(project, chat);
 
         // The full identifier and both times, for the one who needs to match a chat up with
         // a folder on disk or with the other PC.
-        ToolTipService.SetToolTip(row, DescribeChatInFull(chat));
+        ToolTipService.SetToolTip(open, DescribeChatInFull(chat));
+
+        // ...and the same action is spelled out as an icon, because nothing about a bare row
+        // says it can be opened. The icons sit in a column of their own so that the next
+        // action on a chat — deleting it — is added here, beside this one.
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        actions.Children.Add(CreateRowActionButton("", "View chat", () => OpenChatAsync(project, chat)));
+
+        actions.Children.Add(CreateRowActionButton("", "Rename chat", () => RenameChatAsync(project, chat)));
+
+        var row = new Grid { ColumnSpacing = 4 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(open);
+        Grid.SetColumn(actions, 1);
+        row.Children.Add(actions);
         return row;
+    }
+
+    /// <summary>An icon-only button for an action on a row, labelled for the tooltip and for screen readers.</summary>
+    private static Button CreateRowActionButton(string glyph, string label, Func<Task> action)
+    {
+        var button = new Button
+        {
+            Content = new FontIcon { Glyph = glyph, FontSize = 16 },
+            Style = (Style)Application.Current.Resources["SubtleButtonStyle"],
+            Width = 40,
+            Height = 40,
+            Padding = new Thickness(0)
+        };
+        ToolTipService.SetToolTip(button, label);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
+        button.Click += async (_, _) => await action();
+        return button;
+    }
+
+    // ---- renaming one chat -----------------------------------------------------------
+
+    private async Task RenameChatAsync(ChatLibraryProject project, ArchivedChat chat)
+    {
+        var input = new TextBox
+        {
+            Text = chat.Title ?? string.Empty,
+            PlaceholderText = "Chat title",
+            MaxLength = ChatTitle.MaximumLength,
+            MinWidth = 360
+        };
+        input.SelectAll();
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            RequestedTheme = WindowRoot.ActualTheme,
+            Title = "Rename chat",
+            Content = input,
+            PrimaryButtonText = "Rename",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        if (ChatTitle.Normalize(input.Text) is null)
+        {
+            ChatsInfoBar.Title = "Type a title for the chat";
+            ChatsInfoBar.Message = string.Empty;
+            ChatsInfoBar.Severity = InfoBarSeverity.Warning;
+            ChatsInfoBar.IsOpen = true;
+            return;
+        }
+
+        try
+        {
+            var result = await _syncHost.RenameArchivedChatAsync(project.ProviderId, project.Project, chat.Id, input.Text);
+            ChatsInfoBar.Title = result.Succeeded ? "Chat renamed" : "Could not rename the chat";
+            ChatsInfoBar.Message = result.Message;
+            ChatsInfoBar.Severity = result.Succeeded ? InfoBarSeverity.Success : InfoBarSeverity.Error;
+            ChatsInfoBar.IsOpen = true;
+            if (result.Succeeded)
+            {
+                await RefreshChatLibraryAsync();
+
+                // The refresh closes the notice; say what happened again afterwards.
+                ChatsInfoBar.IsOpen = true;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidDataException or InvalidOperationException or ArgumentException)
+        {
+            ChatsInfoBar.Title = "Could not rename the chat";
+            ChatsInfoBar.Message = exception.Message;
+            ChatsInfoBar.Severity = InfoBarSeverity.Error;
+            ChatsInfoBar.IsOpen = true;
+        }
     }
 
     // ---- reading one chat ------------------------------------------------------------

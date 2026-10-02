@@ -47,6 +47,7 @@ public sealed class CopilotSessionStore
     private const string SessionsTable = "sessions";
     private const string TurnsTable = "turns";
     private const string IdColumn = "id";
+    private const string SummaryColumn = "summary";
 
     /// <summary>Timestamp format Visual Studio itself writes into this database.</summary>
     private const string TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
@@ -117,11 +118,13 @@ public sealed class CopilotSessionStore
             HashSet<string> columns;
             HashSet<string> known;
             HashSet<string> alreadyListed;
+            Dictionary<string, string?> summaries;
             using (var connection = Open(SqliteOpenMode.ReadOnly))
             {
                 columns = ReadColumns(connection, SessionsTable);
                 known = columns.Contains(IdColumn) ? ReadIds(connection, SessionsTable, IdColumn) : [];
                 alreadyListed = ReadIds(connection, TurnsTable, "session_id");
+                summaries = columns.Contains(SummaryColumn) ? ReadSummaries(connection) : [];
             }
 
             if (!columns.Contains(IdColumn))
@@ -139,16 +142,36 @@ public sealed class CopilotSessionStore
                 .Where(candidate => candidate.NeedsRow || candidate.Turns.Count > 0)
                 .ToArray();
 
-            if (pending.Length == 0 || dryRun)
+            // A chat the user renamed elsewhere carries the new name in its descriptor; the
+            // row here still has the old one. Only a name the user chose is carried over, and
+            // only onto a row that exists: the rest of the row is Visual Studio's own.
+            var renamed = sessions
+                .Where(session => session.IsUserNamed == true
+                    && session.Name is { Length: > 0 }
+                    && summaries.TryGetValue(session.Id, out var summary)
+                    && !string.Equals(summary, session.Name, StringComparison.Ordinal))
+                .ToArray();
+
+            if (pending.Length + renamed.Length == 0 || dryRun)
             {
-                return new CopilotSessionRegistration(pending.Length);
+                return new CopilotSessionRegistration(pending.Length + renamed.Length);
             }
 
             BackUp();
 
             using var writeConnection = Open(SqliteOpenMode.ReadWrite);
             using var transaction = writeConnection.BeginTransaction();
-            var written = 0;
+            var written = renamed.Length;
+            foreach (var session in renamed)
+            {
+                using var update = writeConnection.CreateCommand();
+                update.Transaction = transaction;
+                update.CommandText = $"UPDATE {SessionsTable} SET {SummaryColumn} = $summary WHERE {IdColumn} = $id";
+                update.Parameters.AddWithValue("$summary", session.Name);
+                update.Parameters.AddWithValue("$id", session.Id);
+                update.ExecuteNonQuery();
+            }
+
             foreach (var (session, needsRow, turns) in pending)
             {
                 if (needsRow)
@@ -228,6 +251,23 @@ public sealed class CopilotSessionStore
         }
 
         return ids;
+    }
+
+    private static Dictionary<string, string?> ReadSummaries(SqliteConnection connection)
+    {
+        var summaries = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT {IdColumn}, {SummaryColumn} FROM {SessionsTable}";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!reader.IsDBNull(0))
+            {
+                summaries[reader.GetString(0)] = reader.IsDBNull(1) ? null : reader.GetString(1);
+            }
+        }
+
+        return summaries;
     }
 
     private static IReadOnlyList<CopilotChatTurn> ReadTurns(CopilotChatSession session) =>

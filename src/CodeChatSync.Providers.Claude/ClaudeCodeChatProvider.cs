@@ -49,7 +49,8 @@ namespace CodeChatSync.Providers.Claude;
 /// </para>
 /// </remarks>
 public sealed class ClaudeCodeChatProvider
-    : IChatSessionProvider, IChatRestoreValidator, IChatContentMapper, IArchivedChatCatalog, IArchivedChatReader
+    : IChatSessionProvider, IChatRestoreValidator, IChatContentMapper, IArchivedChatCatalog, IArchivedChatReader,
+        IArchivedChatRenamer
 {
     private readonly IProcessGuard _processGuard;
     private readonly ClaudeProjectsDirectory _directory;
@@ -76,6 +77,45 @@ public sealed class ClaudeCodeChatProvider
         .. ClaudeArchivedChatDiscovery.Discover(projectSyncFolder)
             .Select(chat => new ArchivedChat(Id, chat.Id, chat.Title, chat.CreatedAt, chat.UpdatedAt, chat.Length, 1))
     ];
+
+    /// <summary>
+    /// Renames an archived transcript the way Claude Code does: by appending a
+    /// <c>custom-title</c> record, which wins over any generated title. The conversation
+    /// itself is never rewritten, so nothing needs backing up.
+    /// </summary>
+    public bool RenameArchivedChat(string projectSyncFolder, string chatId, string title)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSyncFolder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        if (ClaudeArchivedChatDiscovery.FindTranscript(projectSyncFolder, chatId) is not { } transcript)
+        {
+            return false;
+        }
+
+        var record = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            type = "custom-title",
+            customTitle = title,
+            sessionId = chatId
+        });
+
+        using var stream = new FileStream(transcript.FullName, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+
+        // A transcript that was cut off mid-line would swallow the record into the torn line.
+        var endsWithNewline = true;
+        if (stream.Length > 0)
+        {
+            stream.Seek(-1, SeekOrigin.End);
+            endsWithNewline = stream.ReadByte() == '\n';
+        }
+
+        stream.Seek(0, SeekOrigin.End);
+        var bytes = System.Text.Encoding.UTF8.GetBytes((endsWithNewline ? "" : "\n") + record + "\n");
+        stream.Write(bytes);
+        return true;
+    }
 
     /// <summary>
     /// Reads an archived transcript's conversation, wherever under the project folder its

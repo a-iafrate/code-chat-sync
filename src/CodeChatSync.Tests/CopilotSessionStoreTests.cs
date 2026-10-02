@@ -209,6 +209,53 @@ public sealed class CopilotSessionStoreTests : IDisposable
         Assert.Equal(2, ReadTurns().Count);
     }
 
+    /// <summary>
+    /// A chat renamed on another PC is already listed here with its old name: the new one,
+    /// which only the user chooses, is carried onto the existing row and nothing else.
+    /// </summary>
+    [Fact]
+    public void Register_CarriesAUserChosenNameOntoAnExistingRow()
+    {
+        CreateDatabase();
+        var session = SessionWithTranscript("eeeeeeee-5555-5555-5555-555555555555") with
+        {
+            Name = "Chosen name",
+            IsUserNamed = true
+        };
+        Execute("INSERT INTO sessions (id, cwd, summary) VALUES ($id, 'C:\\elsewhere\\', 'Old name')", session.Id);
+        Execute(
+            "INSERT INTO turns (session_id, turn_index, user_message, assistant_response) VALUES ($id, 0, 'q', 'a')",
+            session.Id);
+
+        var registration = Store().Register([session], dryRun: false);
+
+        Assert.Equal(1, registration.RegisteredCount);
+        var row = Assert.Single(ReadSessions());
+        Assert.Equal("Chosen name", row["summary"]);
+        Assert.Equal("C:\\elsewhere\\", row["cwd"]);
+        Assert.Equal(1, CountBackups());
+    }
+
+    [Fact]
+    public void Register_LeavesAGeneratedNameOnAnExistingRowAlone()
+    {
+        CreateDatabase();
+        var session = SessionWithTranscript("ffffffff-6666-6666-6666-666666666666") with
+        {
+            Name = "Generated",
+            IsUserNamed = false
+        };
+        Execute("INSERT INTO sessions (id, summary) VALUES ($id, 'Visual Studio wrote this')", session.Id);
+        Execute(
+            "INSERT INTO turns (session_id, turn_index, user_message, assistant_response) VALUES ($id, 0, 'q', 'a')",
+            session.Id);
+
+        var registration = Store().Register([session], dryRun: false);
+
+        Assert.Equal(0, registration.RegisteredCount);
+        Assert.Equal("Visual Studio wrote this", Assert.Single(ReadSessions())["summary"]);
+    }
+
     private CopilotSessionStore Store() => new(_databasePath, BackupRoot());
 
     private CopilotChatSession SessionWithTranscript(string id)

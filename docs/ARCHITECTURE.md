@@ -701,7 +701,24 @@ and the Claude reader only ever searches for a well-formed session id. Both are
 reached through `ChatLibrary.Read`, which resolves the project folder exactly as the
 list does.
 
-Still to build, in this order: the title editor, deletion.
+A chat row has two ways in, deliberately: the title and details are one large target,
+and an eye icon at the right of the row does the same thing, because nothing about a
+bare row says it can be opened. The icons live in a column of their own, as
+icon-only buttons with a tooltip and an accessible name (`CreateRowActionButton`), so
+the actions that follow — deleting a chat — are added to that column beside the eye
+rather than made to fit inside the row's own button, where a second button would
+not receive clicks.
+
+Renaming (`IArchivedChatRenamer`, `ChatLibrary.Rename`) changes the archive, never a
+tool's live storage, so it needs no "tool closed" guard. It runs behind the sync
+gate: pull, edit, publish. What a rename writes follows each tool's own convention,
+verified on real data: Visual Studio rewrites `workspace.yaml` (`name`,
+`user_named: true`) and leaves no trace in `events.jsonl`; Claude Code appends a
+`{"type":"custom-title"}` line. The Visual Studio descriptor is backed up before
+it is rewritten. Typed titles go through `ChatTitle.Normalize` (one line, no control
+characters, capped).
+
+Still to build: deletion.
 
 Functionality, as originally planned:
 
